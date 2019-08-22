@@ -6,6 +6,8 @@ Created on Thu Aug 22 09:11:51 2019
 @author: davidblair
 """
 
+###
+
 import setuptools
 
 with open("README.md", "r") as fh:
@@ -27,4 +29,3 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
 )
-
