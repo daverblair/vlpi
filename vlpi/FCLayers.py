@@ -11,14 +11,14 @@ from typing import Iterable
 import torch
 from torch import nn as nn
 from utils import one_hot
-from LinearPositiveWeights import LinearPositiveWeights
+from vlpi.LinearPositiveWeights import vlpi.LinearPositiveWeights
 
 
 class FCLayers_Monotonic(nn.Module):
-    r"""A helper class to build fully-connected layers for a neural network. 
-    Uses ReLU for non-linearities, dropout for convergence. 
-    Adapted frome the scVI package: https://github.com/YosefLab/scVI. 
-    
+    r"""A helper class to build fully-connected layers for a neural network.
+    Uses ReLU for non-linearities, dropout for convergence.
+    Adapted frome the scVI package: https://github.com/YosefLab/scVI.
+
     :param n_in: The dimensionality of the input data (excluding covariates)
     :param n_out: The dimensionality of the output layer
     :param n_cat_list: A list containing, for each categorical covariate of interest,
@@ -27,16 +27,16 @@ class FCLayers_Monotonic(nn.Module):
     :param n_layers: The number of fully-connected hidden layers
     :param n_hidden: The number of nodes per hidden layer
     :param dropout_rate: Dropout rate to apply to each of the hidden layers
-    Note: there no batch normalization with this module, as this can break the 
+    Note: there no batch normalization with this module, as this can break the
     positive correlation structure desired by the model. Moreover, we replaced
     the ReLU function by a threshold function with similar properties, which instead
     replaces values < 1.0 by 0.0 (instead of values < 0.0, of which there will be none)
     """
     def __init__(self, n_in: int, n_out: int, n_cat_list: Iterable[int] = None,
                  n_layers: int = 2, n_hidden: int = 128, dropout_rate: float = 0.2, use_batch_norm=True):
-        
+
         super(FCLayers_Monotonic,self).__init__()
-        
+
         layers_dim = [n_in] + (n_layers - 1) * [n_hidden] + [n_out]
 
         if n_cat_list is not None:
@@ -77,16 +77,16 @@ class FCLayers_Monotonic(nn.Module):
                             x = torch.cat((x, *one_hot_cat_list), dim=-1)
                         else:
                             x = torch.cat((*one_hot_cat_list,), dim=-1)
-                        
+
                     x = layer(x)
         return x
-    
+
 
 class FCLayers(nn.Module):
-    r"""A helper class to build fully-connected layers for a neural network. 
-    Uses ReLU for non-linearities, BatchNorm1d and dropout for convergence. 
-    Adapted frome the scVI package: https://github.com/YosefLab/scVI. 
-    
+    r"""A helper class to build fully-connected layers for a neural network.
+    Uses ReLU for non-linearities, BatchNorm1d and dropout for convergence.
+    Adapted frome the scVI package: https://github.com/YosefLab/scVI.
+
     :param n_in: The dimensionality of the input data (excluding covariates)
     :param n_out: The dimensionality of the output layer
     :param n_cat_list: A list containing, for each categorical covariate of interest,
@@ -101,9 +101,9 @@ class FCLayers(nn.Module):
 
     def __init__(self, n_in: int, n_out: int, n_cat_list: Iterable[int] = None,
                  n_layers: int = 1, n_hidden: int = 128, dropout_rate: float = 0.2, use_batch_norm=True):
-        
+
         super(FCLayers,self).__init__()
-        
+
         layers_dim = [n_in] + (n_layers - 1) * [n_hidden] + [n_out]
 
         if n_cat_list is not None:
@@ -147,18 +147,14 @@ class FCLayers(nn.Module):
                             x = torch.cat((*one_hot_cat_list,), dim=-1)
                     x = layer(x)
         return x
-    
-    
+
+
 if __name__=='__main__':
-    
+
     testFC = FCLayers_Monotonic(n_in=1, n_out=50, n_cat_list=[2,3], n_layers=2, n_hidden=128, dropout_rate = 0.2)
     testFC_ = FCLayers(n_in=1, n_out=50, n_cat_list=[2,3], n_layers=2, n_hidden=128, dropout_rate = 0.2)
-    
+
     simData = torch.randn(4,1)
     cov1=torch.tensor([[1,0,0,1]]).transpose(0,1)
     cov2=torch.tensor([[1,2,0,1]]).transpose(0,1)
     transformedData = testFC.forward(simData,cov1,cov2)
-    
-    
-    
-    

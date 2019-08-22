@@ -21,7 +21,7 @@ setuptools.setup(
     description="Python implementation of the variational latent phenotype model described in ____.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/____",
+    url="https://github.com/daverblair/vlpi",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
