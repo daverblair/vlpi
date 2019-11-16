@@ -10,13 +10,13 @@ import collections
 from typing import Iterable
 import torch
 from torch import nn as nn
-from utils import one_hot
-from vlpi.LinearPositiveWeights import vlpi.LinearPositiveWeights
+from vlpi.utils import one_hot
+from vlpi.LinearPositiveWeights import LinearPositiveWeights
 
 
 class FCLayers_Monotonic(nn.Module):
     r"""A helper class to build fully-connected layers for a neural network.
-    Uses ReLU for non-linearities, dropout for convergence.
+    Uses Tanh for non-linearities; dropoutfor convergence.
     Adapted frome the scVI package: https://github.com/YosefLab/scVI.
 
     :param n_in: The dimensionality of the input data (excluding covariates)
@@ -29,8 +29,8 @@ class FCLayers_Monotonic(nn.Module):
     :param dropout_rate: Dropout rate to apply to each of the hidden layers
     Note: there no batch normalization with this module, as this can break the
     positive correlation structure desired by the model. Moreover, we replaced
-    the ReLU function by a threshold function with similar properties, which instead
-    replaces values < 1.0 by 0.0 (instead of values < 0.0, of which there will be none)
+    the ReLU function with tanh function which ensures monotonicity without erasing
+    negative values (which the ReLU will do by design)
     """
     def __init__(self, n_in: int, n_out: int, n_cat_list: Iterable[int] = None,
                  n_layers: int = 2, n_hidden: int = 128, dropout_rate: float = 0.2, use_batch_norm=True):
@@ -157,4 +157,4 @@ if __name__=='__main__':
     simData = torch.randn(4,1)
     cov1=torch.tensor([[1,0,0,1]]).transpose(0,1)
     cov2=torch.tensor([[1,2,0,1]]).transpose(0,1)
-    transformedData = testFC.forward(simData,cov1,cov2)
+    transformedData = testFC_.forward(simData,cov1,cov2)

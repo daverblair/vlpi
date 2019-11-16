@@ -10,6 +10,8 @@ vlpi/Optimizers.py
 vlpi/__init__.py
 vlpi/utils.py
 vlpi/vLPM.py
+vlpi/ICDData/CMS32_DESC_LONG_DX.txt
+vlpi/ICDData/icd10cm_codes_2018.txt
 vlpi_pkg_davidblair.egg-info/PKG-INFO
 vlpi_pkg_davidblair.egg-info/SOURCES.txt
 vlpi_pkg_davidblair.egg-info/dependency_links.txt

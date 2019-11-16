@@ -22,6 +22,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/daverblair/vlpi",
+    package_data={'vlpi': ['ICDData/*.txt']},
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
