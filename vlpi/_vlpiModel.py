@@ -21,10 +21,7 @@ from vlpi.utils import random_catcov,infer_liability_CI,build_onehot_arrays
 
 import copy
 
-class ContinuousModel(nn.Module):
-
-
-
+class _vlpiModel(nn.Module):
     def _computeCovEffects(self,cat_cov_list,cov_effect_array):
         one_hot_cat_list = build_onehot_arrays(cat_cov_list,self.numCatList,self.dropLinearCovariateColumn)
         return torch.mm(torch.cat((*one_hot_cat_list,),dim=-1),cov_effect_array)
@@ -50,19 +47,8 @@ class ContinuousModel(nn.Module):
             for param_type,p_vals in p_dict.items():
                 new_dict[variable][param_type]=p_vals.detach()
         return new_dict
-    
-    def _returnUpdatingParamsFlattened(self,withPosterior=True,withEncoder=True):
-        all_params=[]
-        if withPosterior:
-            for variable,p_dict in self.posteriorParamDict.items():
-                for param_type,p_vals in p_dict.items():
-                    all_params+=[p_vals.detach().flatten()]
-       
-        if withEncoder:     
-            for p_vals in self.encoder.parameters():
-                all_params+=[p_vals.detach().flatten()]
-        return torch.cat(all_params)
-    
+
+
     def _copyModelPriorParams(self):
         new_dict={}
         for variable,p_dict in self.priorParamDict.items():
@@ -70,50 +56,54 @@ class ContinuousModel(nn.Module):
             for param_type,p_vals in p_dict.items():
                 new_dict[variable][param_type]=p_vals.detach()
         return new_dict
-    
+
     def _encoder_only_model(self,obs_data=None, cat_cov_list=None, anchor_dx=None,sample_scores=None,numSamples=None,minibatch_scale=1.0):
         assert sample_scores is not None, "Sample scores must be included in order to train the encoder individually."
         assert obs_data is not None, "obs_data must be included when using the _encoder_only_model."
         pyro.module("encoder", self.encoder)
-            
+
         if self.useAnchorDx > 0:
             assert anchor_dx is not None,"Model requires input of anchor dx data if marked as included."
             assert anchor_dx.shape[0]==obs_data.shape[0],"Dimensions along axis 0 of anchor and observed dx data must match."
             obs_data = torch.cat((obs_data,anchor_dx),dim=-1)
         numSamples=obs_data.shape[0]
-        
+
         latent_vals = torch.zeros(sample_scores.shape,dtype=torch.float32,device=sample_scores.device)
         norm_vals = torch.arange(sample_scores.shape[0],device=sample_scores.device).to(dtype=torch.float32)
         norm_vals = dist.Normal(0.0,1.0).icdf(1.0-(norm_vals+1.0)/(norm_vals.shape[0]+1.0))
         for i in range(self.nLatentDim):
             rankings=sample_scores[:,i].argsort(dim=0,descending=True)
-            latent_vals[rankings,i]=norm_vals        
-        
+            latent_vals[rankings,i]=norm_vals
+
+        #add noise to latent states to prevent overtraining the variance
+        latent_vals+=dist.Normal(0.0,1.0).sample(latent_vals.shape)
+
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("rank_pheno_plate",size=numSamples):
                 z_mean,z_std = self.encoder(obs_data,*cat_cov_list)
                 pyro.sample("rankPhenotypes",dist.Normal(z_mean, z_std).to_event(1),obs=latent_vals)
- 
-        
+
+
     def _encoder_only_guide(self,obs_data=None, cat_cov_list=None, anchor_dx=None,sample_scores=None,numSamples=None,minibatch_scale=1.0):
         assert sample_scores is not None, "Sample scores must be included in order to train the encoder individually."
         assert obs_data is not None, "obs_data must be included when using the _encoder_only_model."
-            
+
         if self.useAnchorDx > 0:
             assert anchor_dx is not None,"Model requires input of anchor dx data if marked as included."
             assert anchor_dx.shape[0]==obs_data.shape[0],"Dimensions along axis 0 of anchor and observed dx data must match."
 
 
-    def __init__(self,numObsTraits:int, numCatList:Iterable[int],useAnchorDx:bool,nLatentDim:int,mappingFunction:str,anchorDxPriors={'anchorDxNoise':[1.0,1.0],'latentDimToAnchorDxMap':1.0,'prevalence':[0.000001,0.1]},latentPhenotypePriors={'element_wise_precision':[1.0,1.0]},covariatePriors={'intercept':[0.0,5.0],'cov_scale':3.0},**kwargs):
+    def __init__(self,numObsTraits:int, numCatList:Iterable[int],useAnchorDx:bool,nLatentDim:int,mappingFunction:str,anchorDxPriors={'anchorDxNoise':[1.0,1.0],'latentDimToAnchorDxMap':1.0,'anchorDxPrevalence':[1e-6,0.01]},latentPhenotypePriors={'latentPhenotypeEffectsPrecision':[1.0,1.0]},fixedEffectPriors={'intercepts':[0.0,5.0],'covariates_scale':3.0},**kwargs):
 
 
 
 
-        super(ContinuousModel,self).__init__()
+        super(_vlpiModel,self).__init__()
         self.numObsTraits=numObsTraits
+        self.nLatentDim = nLatentDim
         self.numCatList=numCatList
         self.useAnchorDx=useAnchorDx
-        self.nLatentDim = nLatentDim
+        
 
 
         assert mappingFunction in ['Linear','Linear_Monotonic'], "Currently supported mapping model types for vLPM: Linear, Linear_Monotonic"
@@ -121,12 +111,12 @@ class ContinuousModel(nn.Module):
         self.mappingFunction=mappingFunction
 
         allKeywordArgs = list(kwargs.keys())
-        
+
         if 'computeDevice' not in allKeywordArgs:
             """
             Specifies compute device for model fitting, can also be specified later by
             calling SwitchDevice
-        
+
             """
             self.compute_device=None
         else:
@@ -143,7 +133,7 @@ class ContinuousModel(nn.Module):
 
 
         if 'neuralNetworkHyperparameters' not in allKeywordArgs:
-            self.encoderHyperparameters={'n_layers' : 2, 'n_hidden' : 128, 'dropout_rate': 0.2, 'use_batch_norm':True}
+            self.encoderHyperparameters={'n_layers' : 2, 'n_hidden' : 32, 'dropout_rate': 0.1, 'use_batch_norm':True}
 
         else:
             self.encoderHyperparameters = kwargs['neuralNetworkHyperparameters']
@@ -160,25 +150,26 @@ class ContinuousModel(nn.Module):
         self.posteriorParamDict = {}
         self.priorParamDict={}
 
-
+            
+            
         self.priorParamDict['intercepts']={}
-        self.priorParamDict['intercepts']['mean'] = torch.tensor(covariatePriors['intercept'][0],dtype=torch.float32)
-        self.priorParamDict['intercepts']['scale'] = torch.tensor(covariatePriors['intercept'][1],dtype=torch.float32)
-        self.posteriorParamDict['intercepts'] = {'mean':torch.ones(self.numObsTraits,dtype=torch.float32)*covariatePriors['intercept'][0],'scale':torch.ones(self.numObsTraits,dtype=torch.float32)*covariatePriors['intercept'][1]}
+        self.priorParamDict['intercepts']['mean'] = torch.tensor(fixedEffectPriors['intercepts'][0],dtype=torch.float32)
+        self.priorParamDict['intercepts']['scale'] = torch.tensor(fixedEffectPriors['intercepts'][1],dtype=torch.float32)
+        self.posteriorParamDict['intercepts'] = {'mean':torch.ones(self.numObsTraits,dtype=torch.float32)*fixedEffectPriors['intercepts'][0],'scale':torch.ones(self.numObsTraits,dtype=torch.float32)*fixedEffectPriors['intercepts'][1]}
 
 
         if self.numCovParam>0:
-            self.posteriorParamDict['covEffects']={'mean':torch.zeros(self.numCovParam,self.numObsTraits,dtype=torch.float32),'scale':torch.ones(self.numCovParam,self.numObsTraits,dtype=torch.float32)*covariatePriors['cov_scale']}
+            self.posteriorParamDict['covEffects']={'mean':torch.zeros(self.numCovParam,self.numObsTraits,dtype=torch.float32),'scale':torch.ones(self.numCovParam,self.numObsTraits,dtype=torch.float32)*fixedEffectPriors['covariates_scale']}
             self.priorParamDict['covEffects']={}
             self.priorParamDict['covEffects']['mean'] = torch.tensor(0.0,dtype=torch.float32)
-            self.priorParamDict['covEffects']['scale'] = torch.tensor(covariatePriors['cov_scale'],dtype=torch.float32)
-            
+            self.priorParamDict['covEffects']['scale'] = torch.tensor(fixedEffectPriors['covariates_scale'],dtype=torch.float32)
 
-        
+
+
         self.priorParamDict['latentPhenotypeEffectsPrecision']={}
-        self.priorParamDict['latentPhenotypeEffectsPrecision']['conc']=torch.tensor(latentPhenotypePriors['element_wise_precision'][0],dtype=torch.float32)
-        self.priorParamDict['latentPhenotypeEffectsPrecision']['rate']=torch.tensor(latentPhenotypePriors['element_wise_precision'][1],dtype=torch.float32)
-        self.posteriorParamDict['latentPhenotypeEffectsPrecision']= {'conc':torch.ones(self.nLatentDim,1,dtype=torch.float32)*latentPhenotypePriors['element_wise_precision'][0],'rate':torch.ones(self.nLatentDim,1,dtype=torch.float32)*latentPhenotypePriors['element_wise_precision'][1]}
+        self.priorParamDict['latentPhenotypeEffectsPrecision']['conc']=torch.tensor(latentPhenotypePriors['latentPhenotypeEffectsPrecision'][0],dtype=torch.float32)
+        self.priorParamDict['latentPhenotypeEffectsPrecision']['rate']=torch.tensor(latentPhenotypePriors['latentPhenotypeEffectsPrecision'][1],dtype=torch.float32)
+        self.posteriorParamDict['latentPhenotypeEffectsPrecision']= {'conc':torch.ones(self.nLatentDim,1,dtype=torch.float32)*latentPhenotypePriors['latentPhenotypeEffectsPrecision'][0],'rate':torch.ones(self.nLatentDim,1,dtype=torch.float32)*latentPhenotypePriors['latentPhenotypeEffectsPrecision'][1]}
 
         if self.useAnchorDx:
 
@@ -186,11 +177,12 @@ class ContinuousModel(nn.Module):
             self.priorParamDict['anchorDxNoise']['alpha']=torch.tensor(anchorDxPriors['anchorDxNoise'][0],dtype=torch.float32)
             self.priorParamDict['anchorDxNoise']['beta']=torch.tensor(anchorDxPriors['anchorDxNoise'][1],dtype=torch.float32)
             self.posteriorParamDict['anchorDxNoise'] = {'alpha':torch.tensor([anchorDxPriors['anchorDxNoise'][0]],dtype=torch.float32),'beta':torch.tensor([anchorDxPriors['anchorDxNoise'][1]],dtype=torch.float32)}
-            tmpPrev=infer_liability_CI(anchorDxPriors['prevalence'])
-            self.priorParamDict['latentPhenotypePrevalence']={}
-            self.priorParamDict['latentPhenotypePrevalence']['mean']=torch.tensor(tmpPrev[0],dtype=torch.float32)
-            self.priorParamDict['latentPhenotypePrevalence']['scale']=torch.tensor(tmpPrev[1],dtype=torch.float32)
-            self.posteriorParamDict['latentPhenotypePrevalence'] = {'mean':torch.tensor([tmpPrev[0]],dtype=torch.float32),'scale':torch.tensor([tmpPrev[1]],dtype=torch.float32)}
+
+            transformed_anchor_prior=infer_liability_CI(anchorDxPriors['anchorDxPrevalence'])
+            self.priorParamDict['anchorDxThreshold']={}
+            self.priorParamDict['anchorDxThreshold']['mean']=torch.tensor(transformed_anchor_prior[0],dtype=torch.float32)
+            self.priorParamDict['anchorDxThreshold']['scale']=torch.tensor(transformed_anchor_prior[1],dtype=torch.float32)
+            self.posteriorParamDict['anchorDxThreshold'] = {'mean':self.priorParamDict['anchorDxThreshold']['mean'].detach(),'scale':self.priorParamDict['anchorDxThreshold']['scale'].detach()}
             if self.nLatentDim>1:
                 self.priorParamDict['latentDimToAnchorMap']={}
                 self.priorParamDict['latentDimToAnchorMap']['alpha']=(anchorDxPriors['latentDimToAnchorDxMap']/self.nLatentDim)*torch.ones(self.nLatentDim,dtype=torch.float32)
@@ -209,45 +201,45 @@ class ContinuousModel(nn.Module):
 
         self.eval()
 
-    def SimulateData(self,numSamples):
+    def _simulateData(self,numSamples):
         return self.model(numSamples=numSamples)
-    
+
     def model(self, obs_data=None, cat_cov_list=None, anchor_dx=None,sample_scores=None,numSamples=None,minibatch_scale=1.0):
         if obs_data is not None:
             numSamples=obs_data.shape[0]
-            if self.useAnchorDx > 0:
+            if self.useAnchorDx:
                 assert anchor_dx is not None,"Model requires input of anchor dx data if marked as included."
                 assert anchor_dx.shape[0]==obs_data.shape[0],"Dimensions along axis 0 of anchor and observed dx data must match."
                 obs_data = torch.cat((obs_data,anchor_dx),dim=-1)
-    
-    
+
+
         else:
                 #assert numSamples is not None, "Must provide either observed data or number of samples to simulate."
             if numSamples is None:
                 numSamples=1000
                 print('Warning: no arguments were given to Continuous.model. This should only be done during debugging.')
-        
+
             cat_cov_list = []
             for n_cat in self.numCatList:
                 cat_cov_list+=[random_catcov(n_cat,numSamples,device=self.compute_device)]
-                
-            
+
+
         with pyro.plate("intercept_plate",size=self.numObsTraits,dim=-1):
             intercepts = pyro.sample("intercepts",dist.Normal(self.priorParamDict['intercepts']['mean'],self.priorParamDict['intercepts']['scale']))
 
         if self.useAnchorDx:
             anchorDxNoise = pyro.sample("anchorDxNoise",dist.Beta(self.priorParamDict['anchorDxNoise']['alpha'],self.priorParamDict['anchorDxNoise']['beta']))
-            lp_prev_liability = pyro.sample("latentPhenotypePrevalence",dist.Normal(self.priorParamDict['latentPhenotypePrevalence']['mean'],self.priorParamDict['latentPhenotypePrevalence']['scale']))
+            anchorDxThreshold = pyro.sample("anchorDxThreshold",dist.Normal(self.priorParamDict['anchorDxThreshold']['mean'],self.priorParamDict['anchorDxThreshold']['scale']))
             if self.nLatentDim > 1:
                 latentDimToAnchorMap = pyro.sample("latentDimToAnchorMap",dist.Dirichlet(self.priorParamDict['latentDimToAnchorMap']['alpha']))
 
         if self.numCovParam>0:
             with pyro.plate("cov_plate",size=self.numCovParam):
                 covEffects = pyro.sample("covEffects",dist.Normal(self.priorParamDict['covEffects']['mean'],self.priorParamDict['covEffects']['scale']).expand([self.numObsTraits]).to_event(1))
-        
+
         with pyro.plate("loading_prec_plate",size=self.nLatentDim,dim=-1):
             latentPhenotypePrecision = pyro.sample("latentPhenotypeEffectsPrecision",dist.Gamma(self.priorParamDict['latentPhenotypeEffectsPrecision']['conc'],self.priorParamDict['latentPhenotypeEffectsPrecision']['rate']).expand([1]).to_event(1))
-        
+
         if self.mappingFunction=='Linear_Monotonic':
             with pyro.plate("latent_pheno_effect_plate",size=self.nLatentDim,dim=-1):
                 latentPhenotypeEffects = pyro.sample("latentPhenotypeEffects",dist.Exponential(torch.sqrt(latentPhenotypePrecision)).expand([self.nLatentDim,self.numObsTraits]).to_event(1))
@@ -263,15 +255,15 @@ class ContinuousModel(nn.Module):
                 if self.numCovParam>0:
                     liabilities+=self._computeCovEffects(cat_cov_list,covEffects)
                 mean_dx_rates=dist.Normal(0.0,1.0).cdf(liabilities)
-                
-                
+
+
                 if self.useAnchorDx:
                     if self.nLatentDim > 1:
-                        anchor_dx_liability = (torch.sum(latentPhenotypes*torch.sqrt(latentDimToAnchorMap),dim=-1,keepdim=True)+lp_prev_liability)/anchorDxNoise
+                        anchor_dx_liability = (torch.sum(latentPhenotypes*torch.sqrt(latentDimToAnchorMap),dim=-1,keepdim=True)+anchorDxThreshold)/anchorDxNoise
                     else:
-                        anchor_dx_liability=(latentPhenotypes+lp_prev_liability)/anchorDxNoise
+                        anchor_dx_liability=(latentPhenotypes+anchorDxThreshold)/anchorDxNoise
                     anchor_dx_prob = dist.Normal(0.0,1.0).cdf(anchor_dx_liability)
-                    
+
                     mean_dx_rates = torch.cat((mean_dx_rates,anchor_dx_prob),dim=-1)
                 sample_results=pyro.sample("obsTraitIncidence",dist.Bernoulli(mean_dx_rates).to_event(1),obs=obs_data)
         if obs_data is None:
@@ -291,13 +283,13 @@ class ContinuousModel(nn.Module):
             if self.useAnchorDx:
                 outputDict['anchor_dx_data'] = sample_results[:,self.numObsTraits:(self.numObsTraits+1)]
                 outputDict['model_params']['anchorDxNoise']=anchorDxNoise
-                outputDict['model_params']['latentPhenotypePrevalence']=lp_prev_liability
+                outputDict['model_params']['latentPhenotypePrevalence']=anchorDxThreshold
                 if self.nLatentDim > 1:
                     outputDict['model_params']['latentDimToAnchorMap']=latentDimToAnchorMap
             return outputDict
 
-            
-            
+
+
 
     def guide(self,obs_data=None, cat_cov_list=None,anchor_dx=None,sample_scores=None,numSamples = None,minibatch_scale=1.0):
         if obs_data is not None:
@@ -309,21 +301,21 @@ class ContinuousModel(nn.Module):
                 obs_data = torch.cat((obs_data,anchor_dx),dim=-1)
         else:
             pass
-        
+
         if sample_scores is None:
             pyro.module("encoder", self.encoder)
-            
+
 
         self.posteriorParamDict['intercepts']['mean']=pyro.param("interceptPosteriorMean",init_tensor=self.posteriorParamDict['intercepts']['mean'])
         self.posteriorParamDict['intercepts']['scale']=pyro.param("interceptPosteriorScale",init_tensor=self.posteriorParamDict['intercepts']['scale'],constraint=torch.distributions.constraints.positive)
         with pyro.plate("intercept_plate",size=self.numObsTraits,dim=-1):
             pyro.sample("intercepts",dist.Normal(self.posteriorParamDict['intercepts']['mean'] ,self.posteriorParamDict['intercepts']['scale']))
-        
+
         self.posteriorParamDict['latentPhenotypeEffectsPrecision']['conc']=pyro.param('latentPhenotypeEffectsPrecisionPosteriorConc',init_tensor=self.posteriorParamDict['latentPhenotypeEffectsPrecision']['conc'],constraint=torch.distributions.constraints.positive)
         self.posteriorParamDict['latentPhenotypeEffectsPrecision']['rate']=pyro.param('latentPhenotypeEffectsPrecisionPosteriorRate',init_tensor=self.posteriorParamDict['latentPhenotypeEffectsPrecision']['rate'],constraint=torch.distributions.constraints.positive)
         with pyro.plate("loading_prec_plate",size=self.nLatentDim,dim=-1):
             pyro.sample("latentPhenotypeEffectsPrecision",dist.Gamma(self.posteriorParamDict['latentPhenotypeEffectsPrecision']['conc'],self.posteriorParamDict['latentPhenotypeEffectsPrecision']['rate']).to_event(1))
-        
+
 
         if self.mappingFunction=='Linear_Monotonic':
             self.posteriorParamDict['latentPhenotypeEffects']['conc']=pyro.param('latentPhenotypeEffectsPosteriorConc',init_tensor=self.posteriorParamDict['latentPhenotypeEffects']['conc'],constraint=torch.distributions.constraints.positive)
@@ -348,23 +340,25 @@ class ContinuousModel(nn.Module):
         if self.useAnchorDx > 0:
 
             self.posteriorParamDict['anchorDxNoise']['alpha']=pyro.param('anchorDxNoisePosteriorAlpha',init_tensor=self.posteriorParamDict['anchorDxNoise']['alpha'],constraint=torch.distributions.constraints.positive)
-            self.posteriorParamDict['anchorDxNoise']['beta']=pyro.param('anchorDxNoisePosteriorRate',init_tensor=self.posteriorParamDict['anchorDxNoise']['beta'],constraint=torch.distributions.constraints.positive)
+            self.posteriorParamDict['anchorDxNoise']['beta']=pyro.param('anchorDxNoisePosteriorBeta',init_tensor=self.posteriorParamDict['anchorDxNoise']['beta'],constraint=torch.distributions.constraints.positive)
             pyro.sample('anchorDxNoise',dist.Beta(self.posteriorParamDict['anchorDxNoise']['alpha'],self.posteriorParamDict['anchorDxNoise']['beta']))
-            
-            self.posteriorParamDict['latentPhenotypePrevalence']['mean']=pyro.param('latentPhenotypePrevalencePosteriorMean',init_tensor=self.posteriorParamDict['latentPhenotypePrevalence']['mean'])
-            self.posteriorParamDict['latentPhenotypePrevalence']['scale']=pyro.param('latentPhenotypePrevalencePosteriorScale',init_tensor=self.posteriorParamDict['latentPhenotypePrevalence']['scale'],constraint=torch.distributions.constraints.positive)
-            pyro.sample("latentPhenotypePrevalence",dist.Normal(self.posteriorParamDict['latentPhenotypePrevalence']['mean'],self.posteriorParamDict['latentPhenotypePrevalence']['scale']))
+
+            self.posteriorParamDict['anchorDxThreshold']['mean']=pyro.param('anchorDxThresholdPosteriorMean',init_tensor=self.posteriorParamDict['anchorDxThreshold']['mean'])
+            self.posteriorParamDict['anchorDxThreshold']['scale']=pyro.param('anchorDxThresholdPosteriorScale',init_tensor=self.posteriorParamDict['anchorDxThreshold']['scale'],constraint=torch.distributions.constraints.positive)
+            pyro.sample("anchorDxThreshold",dist.Normal(self.posteriorParamDict['anchorDxThreshold']['mean'],self.posteriorParamDict['anchorDxThreshold']['scale']))
             if self.nLatentDim > 1:
                 self.posteriorParamDict['latentDimToAnchorMap']['alpha']=pyro.param('latentDimToAnchorMapPosterior',self.posteriorParamDict['latentDimToAnchorMap']['alpha'],constraint=torch.distributions.constraints.positive)
                 pyro.sample('latentDimToAnchorMap',dist.Dirichlet(self.posteriorParamDict['latentDimToAnchorMap']['alpha']))
-        
+
 
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("latent_pheno_plate",size=numSamples):
                 z_mean,z_std = self.encoder(obs_data,*cat_cov_list)
                 pyro.sample("latentPhenotypes", dist.Normal(z_mean, z_std).to_event(1))
 
-
+    def ComputeELBO(self,obs_dis_array,cat_cov_list,anchor_dx_array,num_particles=10):
+        elboFunc = Trace_ELBO(num_particles=num_particles)
+        return elboFunc.loss()
 
     def _computeELBOPerDatum(self,obs_dis_array,cat_cov_list,anchor_dx_array,num_particles):
         elboFunc = Trace_ELBO(num_particles=num_particles)
@@ -397,24 +391,34 @@ class ContinuousModel(nn.Module):
 
             if self.nLatentDim > 1:
                 expLatentToAnchorMap = self.posteriorParamDict['latentDimToAnchorMap']['alpha']/torch.sum(self.posteriorParamDict['latentDimToAnchorMap']['alpha'])
-                z_mean=torch.sum(torch.sqrt(expLatentToAnchorMap)*z_mean,dim=-1,keepdim=True)
-                z_scale = torch.sqrt(torch.sum((expLatentToAnchorMap*z_scale)**2,dim=-1,keepdim=True))
+                z_mean_transformed=torch.sum(torch.sqrt(expLatentToAnchorMap)*z_mean,dim=-1,keepdim=True)
+                z_scale_transformed = torch.sqrt(torch.sum((expLatentToAnchorMap*z_scale)**2,dim=-1,keepdim=True))
+
+                if returnScale:
+                    return (z_mean,z_scale),(z_mean_transformed,z_scale_transformed)
+                else:
+                    return (z_mean,z_mean_transformed)
+            else:
+                if returnScale:
+                    return z_mean,z_scale
+                else:
+                    return z_mean
 
         else:
             z_mean,z_scale = self.encoder(obs_dis_array,*cat_cov_list)
 
-        if returnScale:
-            return z_mean,z_scale
-        else:
-            return z_mean
+            if returnScale:
+               return z_mean,z_scale
+            else:
+               return z_mean
 
-    def ComputeKLDivergenceFromPrior(self,obs_dis_array,cat_cov_list,anchor_dx_array=None,returnScale=False,num_particles=5,anchor_dx_prior = 0.5):
-        
+    def ComputeKLDivergenceFromPrior(self,obs_dis_array,cat_cov_list,anchor_dx_array=None,returnScale=False,num_particles=10,anchor_dx_prior = 0.5):
+
         distParams = self.PredictLatentPhenotype(obs_dis_array,cat_cov_list,anchor_dx_array=anchor_dx_array,returnScale=True,num_particles=num_particles,anchor_dx_prior = anchor_dx_prior)
         return 0.5*torch.sum((distParams[0]**2)+(distParams[1]**2)-2.0*torch.log(distParams[1])-1.0,dim=1,keepdim=True)
-    
-    
-    def PredictAnchorDx(self,obs_dis_array,cat_cov_list,num_particles=5,anchor_dx_prior = 0.5):
+
+
+    def PredictAnchorDx(self,obs_dis_array,cat_cov_list,num_particles=10,anchor_dx_prior = 0.5):
         assert self.useAnchorDx, "Cannot predict anchor dx if model not trained using this information"
         if not torch.is_tensor(anchor_dx_prior):
             anchor_dx_prior=torch.tensor(anchor_dx_prior,dtype=torch.float32,device =obs_dis_array.device)
@@ -437,9 +441,3 @@ class ContinuousModel(nn.Module):
         self.load_state_dict(prior_model_state['model_state'],strict=True)
         self.posteriorParamDict=prior_model_state['posterior_params']
         self.priorParamDict=prior_model_state['prior_params']
-
-
-
-
-
-

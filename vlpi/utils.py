@@ -54,13 +54,18 @@ def one_hot(index, n_cat, dropColumn=False):
 def one_hot_scipy(index,n_cat,dropColumn=False):
     if sparse.issparse(index):
         index = index.toarray().ravel()
+        returnSparse=True
     else:
         index=np.array(index).ravel()
+        returnSparse=False
     one_hot = sparse.coo_matrix((np.ones(index.shape[0]),(np.arange(index.shape[0]),index)),shape = (index.shape[0],n_cat),dtype=np.float64)
     one_hot = one_hot.tocsr()
     if dropColumn:
         one_hot = one_hot[:,1:]
-    return one_hot
+    if returnSparse:
+        return one_hot
+    else:
+        return one_hot.toarray()
 
 def file_len(fname,skip_rows):
     p = subprocess.Popen(['wc', '-l', fname], stdout=subprocess.PIPE,
@@ -100,6 +105,9 @@ def infer_liability_CI(CI95):
     assert output[2]==1,"Unable to find gaussian distribution with appropriate CI, consider alternative."
     return output[0]
 
+
+def rel_diff(curr,prev):
+    return abs((curr - prev) / prev)    
 
 
 def fisher_exact(dataMatrix,incidenceVec):

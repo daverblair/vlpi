@@ -17,7 +17,7 @@ from sklearn.utils import shuffle
 import copy
 import pickle
 import itertools
-from vlpi.utils import one_hot_scipy
+from vlpi.utils import one_hot_scipy,one_hot
 from vlpi.ICDUtilities import ICDUtilities
 
 class ClinicalDataset:
@@ -470,7 +470,7 @@ class ClinicalDatasetSampler():
 
         
 
-    def __init__(self, currentClinicalDataset,trainingFraction,conditionSamplingOnDx:Iterable[str]=[],returnArrays='Numpy',shuffle=True,**kwargs):
+    def __init__(self, currentClinicalDataset,trainingFraction,conditionSamplingOnDx:Iterable[str]=[],returnArrays='Numpy',shuffle=True):
         """
         Initializes the clinical dataset sampler class, which uses a sparse representation of the 
         underlying data matrix to draw samples quickly. 
@@ -495,6 +495,7 @@ class ClinicalDatasetSampler():
         self.trainingFraction = trainingFraction
         self.fracWDx=0.0
         self.numTotalSamples = len(self.currentClinicalDataset.data)
+        self.includedCovariates = self.currentClinicalDataset.catCovConversionDicts.keys()
         
         
         assert returnArrays in ['Numpy','Torch','Sparse'], "Only Numpy arrarys, Torch tensors, or Scipy.Sparse (csr) supported"
@@ -610,13 +611,18 @@ class ClinicalDatasetSampler():
         self.trainingDataIndex=[self.trainingDataIndex[has_at_least_one_dx_train],self.trainingDataIndex[np.invert(has_at_least_one_dx_train)]]
         self.testDataIndex=[self.testDataIndex[has_at_least_one_dx_test],self.testDataIndex[np.invert(has_at_least_one_dx_test)]]
         self.isConditioned=True
+        
+    def SubsetCovariates(self,newCovList):
+        assert set(newCovList).issubset(self.includedCovariates), "Subset of covariates provided is not subset  of current covariates."
+        self.includedCovariates=newCovList
+        
 
-    def _returnData(self,newIndex):
+    def _returnData(self,newIndex,collapseAnchorDx=True):
         if isinstance(newIndex,Iterable)==False:
             newIndex=[newIndex]
             
         incidenceData = self.arrayFunc(self.currentClinicalDataset.ReturnSparseDataMatrix(newIndex)) 
-        covData = [self.currentClinicalDataset.data.loc[newIndex][s].values for s in self.currentClinicalDataset.catCovConversionDicts.keys()]
+        covData = [self.currentClinicalDataset.data.loc[newIndex][s].values for s in self.includedCovariates]
         covData = [self.arrayFunc(x.reshape(incidenceData.shape[0],1)) for x in covData]
         
         if not self.isConditioned:
@@ -764,14 +770,30 @@ class ClinicalDatasetSampler():
             new_instance.testDataIndex=[dataWithDx[cutOffValWDx:],dataWithoutDx[cutOffValWoDx:]]
         return new_instance
     
-    def CollapseDataArrays(self,disInds,cov_vecs,drop_column=False):
-        list_of_cov_arrays = [one_hot_scipy(cov_vecs[i],n_cat,dropColumn=drop_column) for i,n_cat in enumerate([len(x) for x in self.currentClinicalDataset.catCovConversionDicts.values()])]
+    def CollapseDataArrays(self,disInds=None,cov_vecs=None,drop_column=False):
+        list_of_arrays=[]
+        if disInds is not None:
+            list_of_arrays+=[disInds]
+        
+        
+        if cov_vecs is not None:
+            n_cat_vec = [len(self.currentClinicalDataset.catCovConversionDicts[x]) for x in self.includedCovariates]
+            
+            for i,n_cat in enumerate(n_cat_vec):
+                if torch.is_tensor(cov_vecs[0]):
+                    list_of_arrays+=[one_hot(cov_vecs[i],n_cat,dropColumn=drop_column)]
+                else:
+                    list_of_arrays+=[one_hot_scipy(cov_vecs[i],n_cat,dropColumn=drop_column)]
+        
+        
+        list_of_arrays=[self.arrayFunc(x.toarray()) for x in list_of_arrays]
+        
         if self.returnArrays=='Numpy':
-            return np.hstack((disInds,np.hstack([x.toarray() for x in list_of_cov_arrays])))
+            return np.hstack(list_of_arrays,dtype=np.float64)
         elif self.returnArrays=='Sparse':
-            return sparse.hstack((disInds,sparse.hstack(list_of_cov_arrays)),format='csr',dtype=np.float64)
+            return sparse.hstack(list_of_arrays,format='csr',dtype=np.float64)
         else:
-            return torch.cat((disInds,torch.cat([self.arrayFunc(x.toarray()) for x in list_of_cov_arrays],dim=1)),dim=1)
+            return torch.cat(list_of_arrays,dim=1,dtype=torch.float32)
         
     def AddScoresToDataset(self,scoreVector,index):
         self._returnScores=True

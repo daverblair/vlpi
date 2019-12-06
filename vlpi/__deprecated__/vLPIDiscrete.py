@@ -13,7 +13,7 @@ import pyro.distributions as dist
 from pyro.infer import config_enumerate,TraceEnum_ELBO
 from vlpi.Encoders import BinaryExpectationEncoder
 from typing import Iterable
-from vlpi.utils import random_catcov,infer_liability_CI,build_onehot_arrays
+from vlpi.utils import random_catcov,build_onehot_arrays
 import copy
 
 class DiscreteModel(nn.Module):
@@ -43,18 +43,6 @@ class DiscreteModel(nn.Module):
                 new_dict[variable][param_type]=p_vals.detach()
         return new_dict
     
-    def _returnUpdatingParamsFlattened(self,withPosterior=True,withEncoder=True):
-        all_params=[]
-        if withPosterior:
-            for variable,p_dict in self.posteriorParamDict.items():
-                for param_type,p_vals in p_dict.items():
-                    all_params+=[p_vals.detach().flatten()]
-       
-        if withEncoder:     
-            for p_vals in self.encoder.parameters():
-                all_params+=[p_vals.detach().flatten()]
-            
-        return torch.cat(all_params)
 
     def _copyModelPriorParams(self):
         new_dict={}
@@ -77,7 +65,8 @@ class DiscreteModel(nn.Module):
         numSamples=obs_data.shape[0]
         
         rankings=sample_scores.argsort(dim=0,descending=True)
-        rank_cutoff=int(sample_scores.shape[0]*dist.Normal(0.0,1.0).cdf(self.priorParamDict['latentPhenotypePrevalence']['mean']))
+#        rank_cutoff=int(sample_scores.shape[0]*dist.Normal(0.0,1.0).cdf(self.priorParamDict['latentPhenotypePrevalence']['mean']))
+        rank_cutoff=int(sample_scores.shape[0]*(self.priorParamDict['latentPhenotypePrevalence']['alpha']/(self.priorParamDict['latentPhenotypePrevalence']['alpha']+self.priorParamDict['latentPhenotypePrevalence']['beta'])))
         phenotype_vals = torch.zeros(sample_scores.shape,dtype=torch.long,device=sample_scores.device)
         phenotype_vals[rankings[0:rank_cutoff]]=1
         with pyro.poutine.scale(None,minibatch_scale):
@@ -95,7 +84,7 @@ class DiscreteModel(nn.Module):
             assert anchor_dx.shape[0]==obs_data.shape[0],"Dimensions along axis 0 of anchor and observed dx data must match."
         
     
-    def __init__(self, numObsTraits:int, numCatList:Iterable[int],useAnchorDx:bool,mappingFunction:str,anchorDxPriors={'anchorDxNoise':[1.0,1.0]},latentPhenotypePriors={'element_wise_precision':[1.0,1.0],'prevalence':[0.000001,0.1]},covariatePriors={'intercept':[0.0,5.0],'cov_scale':3.0},**kwargs):
+    def __init__(self, numObsTraits:int, numCatList:Iterable[int],useAnchorDx:bool,mappingFunction:str,anchorDxPriors={'anchorDxNoise':[1.0,1.0]},latentPhenotypePriors={'element_wise_precision':[1.0,1.0],'prevalence':[-3.0,3.0]},covariatePriors={'intercept':[0.0,5.0],'cov_scale':3.0},**kwargs):
 
         super(DiscreteModel,self).__init__()
         self.numObsTraits=numObsTraits
@@ -159,12 +148,10 @@ class DiscreteModel(nn.Module):
             self.priorParamDict['covEffects']['mean'] = torch.tensor(0.0,dtype=torch.float32)
             self.priorParamDict['covEffects']['scale'] = torch.tensor(covariatePriors['cov_scale'],dtype=torch.float32)
 
-        tmpPrev=infer_liability_CI(latentPhenotypePriors['prevalence'])
         self.priorParamDict['latentPhenotypePrevalence']={}
-        self.priorParamDict['latentPhenotypePrevalence']['mean']=torch.tensor([tmpPrev[0]],dtype=torch.float32)
-        self.priorParamDict['latentPhenotypePrevalence']['scale']=torch.tensor([tmpPrev[1]],dtype=torch.float32)
-        self.posteriorParamDict['latentPhenotypePrevalence'] = {'mean':torch.tensor([tmpPrev[0]],dtype=torch.float32),'scale':torch.tensor([tmpPrev[1]],dtype=torch.float32)}
-
+        self.priorParamDict['latentPhenotypePrevalence']['alpha']=torch.tensor([latentPhenotypePriors['prevalence'][0]],dtype=torch.float32)
+        self.priorParamDict['latentPhenotypePrevalence']['beta']=torch.tensor([latentPhenotypePriors['prevalence'][1]],dtype=torch.float32)
+        self.posteriorParamDict['latentPhenotypePrevalence'] = {'alpha':torch.tensor([latentPhenotypePriors['prevalence'][0]],dtype=torch.float32),'beta':torch.tensor([latentPhenotypePriors['prevalence'][1]],dtype=torch.float32)}
 
         self.priorParamDict['latentPhenotypeEffectsPrecision']={}
         self.priorParamDict['latentPhenotypeEffectsPrecision']['conc']=torch.tensor(latentPhenotypePriors['element_wise_precision'][0],dtype=torch.float32)
@@ -232,9 +219,8 @@ class DiscreteModel(nn.Module):
             latentPhenotypeEffects = pyro.sample("latentPhenotypeEffects",dist.Normal(0.0,torch.sqrt(1.0/latentPhenotypePrecision)).expand([1,self.numObsTraits]).to_event(1))
 
 
-        lp_prev_liability = pyro.sample("latentPhenotypePrevalence",dist.Normal(self.priorParamDict['latentPhenotypePrevalence']['mean'],self.priorParamDict['latentPhenotypePrevalence']['scale']))
-        lp_prev=dist.Normal(0.0,1.0).cdf(lp_prev_liability)
-
+        lp_prev = pyro.sample("latentPhenotypePrevalence",dist.Beta(self.priorParamDict['latentPhenotypePrevalence']['alpha'],self.priorParamDict['latentPhenotypePrevalence']['beta']))
+#        lp_prev=dist.Normal(0.0,1.0).cdf(lp_prev_liability)
         dx_rates = torch.zeros(2,self.numObsTraits,dtype=torch.float32,device=self.compute_device)
         dx_rates[1]=intercepts+latentPhenotypeEffects
         dx_rates[0]=intercepts
@@ -242,11 +228,13 @@ class DiscreteModel(nn.Module):
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("latent_pheno_plate",size=numSamples):
                 latentPhenotypes=pyro.sample("latentPhenotypes",dist.Categorical(probs=torch.tensor([1.0-lp_prev,lp_prev],dtype=torch.float32,device=self.compute_device)))
+                
                 mean_dx_rates = dx_rates[latentPhenotypes]
+                
                 if self.numCovParam>0:
                     mean_dx_rates=mean_dx_rates+self._computeCovEffects(cat_cov_list,covEffects)
                 mean_dx_rates=dist.Normal(0.0,1.0).cdf(mean_dx_rates)
-
+                
                 if self.useAnchorDx:
                     tmp=torch.zeros(2,dtype=torch.float32,device=latentPhenotypes.device)
                     tmp[1]=torch.sigmoid(1.0/anchorDxNoise)
@@ -257,13 +245,12 @@ class DiscreteModel(nn.Module):
                     else:
                         anchor_dx_prob=anchor_dx_prob.unsqueeze(1)
                         mean_dx_rates = torch.cat((mean_dx_rates,anchor_dx_prob*torch.ones((2,mean_dx_rates.shape[1],1),dtype=torch.float32,device=self.compute_device)),dim=-1)
-
                 sample_results = pyro.sample("obsTraitIncidence",dist.Bernoulli(mean_dx_rates).to_event(1),obs=obs_data)
         if obs_data is None:
             outputDict ={}
             outputDict['model_params']={}
             outputDict['model_params']['intercepts']=intercepts
-            outputDict['model_params']['latentPhenotypePrevalence']=lp_prev_liability
+            outputDict['model_params']['latentPhenotypePrevalence']=lp_prev
             outputDict['model_params']['latentPhenotypeEffectsPrecision']=latentPhenotypePrecision
             outputDict['model_params']['latentPhenotypeEffects']=latentPhenotypeEffects
 
@@ -313,10 +300,9 @@ class DiscreteModel(nn.Module):
             self.posteriorParamDict['latentPhenotypeEffects']['scale']=pyro.param('latentPhenotypeEffectsPosteriorScale',init_tensor=self.posteriorParamDict['latentPhenotypeEffects']['scale'].detach(),constraint=torch.distributions.constraints.positive)
             pyro.sample("latentPhenotypeEffects",dist.Normal(self.posteriorParamDict['latentPhenotypeEffects']['mean'],self.posteriorParamDict['latentPhenotypeEffects']['scale']).expand([1,self.numObsTraits]).to_event(1))
 
-        self.posteriorParamDict['latentPhenotypePrevalence']['mean']=pyro.param('latentPhenotypePrevalencePosteriorMean',init_tensor=self.posteriorParamDict['latentPhenotypePrevalence']['mean'].detach())
-        self.posteriorParamDict['latentPhenotypePrevalence']['scale']=pyro.param('latentPhenotypePrevalencePosteriorScale',init_tensor=self.posteriorParamDict['latentPhenotypePrevalence']['scale'].detach(),constraint=torch.distributions.constraints.positive)
-        pyro.sample("latentPhenotypePrevalence",dist.Normal(self.posteriorParamDict['latentPhenotypePrevalence']['mean'],self.posteriorParamDict['latentPhenotypePrevalence']['scale']))
-
+        self.posteriorParamDict['latentPhenotypePrevalence']['alpha']=pyro.param('latentPhenotypePrevalencePosteriorAlpha',init_tensor=self.posteriorParamDict['latentPhenotypePrevalence']['alpha'].detach(),constraint=torch.distributions.constraints.positive)
+        self.posteriorParamDict['latentPhenotypePrevalence']['beta']=pyro.param('latentPhenotypePrevalencePosteriorBeta',init_tensor=self.posteriorParamDict['latentPhenotypePrevalence']['beta'].detach(),constraint=torch.distributions.constraints.positive)
+        pyro.sample("latentPhenotypePrevalence",dist.Beta(self.posteriorParamDict['latentPhenotypePrevalence']['alpha'],self.posteriorParamDict['latentPhenotypePrevalence']['beta']))
 
         if self.numCovParam>0:
             self.posteriorParamDict['covEffects']['mean']=pyro.param("covEffectsPosteriorMean",init_tensor=self.posteriorParamDict['covEffects']['mean'].detach())

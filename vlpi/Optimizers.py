@@ -8,20 +8,18 @@ Created on Wed Aug  7 09:10:20 2019
 import torch
 import pyro
 from pyro.infer import SVI
+from pyro.infer import Trace_ELBO
 from vlpi.AdamW import AdamW
 from torch.optim import Adam
 from torch.utils import data
 from pyro.optim import CosineAnnealingWarmRestarts,ReduceLROnPlateau
 from pyro import poutine
-import numpy as np
 from vlpi.ClinicalDataset import _TorchDatasetWrapper
+from vlpi.utils import rel_diff
 from collections import deque
 
 class Optimizers:
-    
-    def rel_diff(self,curr,prev):
-
-        return abs((curr - prev) / prev)        
+        
     
     def _localShuffle(self,dataSample):
         """
@@ -68,7 +66,7 @@ class Optimizers:
         
         
 
-    def __init__(self,phenotypeModel,datasetSampler,lossFunction,optimizationParameters={'initialLearningRate': 0.05,'maxEpochs': 5000},computeConfiguration={'device':None,'numDataLoaders':0},cosineAnnealing={'withCosineAnnealing':False,'initialRestartInterval':10,'intervalMultiplier':2}):
+    def __init__(self,phenotypeModel,datasetSampler,optimizationParameters={'initialLearningRate': 0.05,'maxEpochs': 5000,'numParticles':10},computeConfiguration={'device':None,'numDataLoaders':0},cosineAnnealing={'withCosineAnnealing':False,'initialRestartInterval':10,'intervalMultiplier':2}):
         """
         This class implements two SGD optimizers, one of which uses the full training
         dataset (FullDatasetTrain) and the other uses mini-batches randomly sampled
@@ -83,18 +81,18 @@ class Optimizers:
         phenotypeModel-->The phenotype model to optimize
         datasetSampler-->ClinicalDatasetSampler that holds clinical data and generates random samples
         withCosineAnnealing-->whether to use Cosine Annealing to adjust learning rate during inference.
-        maxLearningRate-->maximum learning rate used by SGD during inference. If withCosineAnnealing = False, then optimization is initiated with this learning rate once, which is adjusted per optimization strategy
+        maxLearningRate-->maximum learning rate used by SGD during inference. If withCosineAnnealing = False, then optimization is initiated with this learning rate once, which is adjusted per LR reduction on plateau with faily strict reduction policy
         device-->compute device to use. By default, uses CPU unless GPU device specified, which can be string or integer
     
         """
 
         self.phenotypeModel=phenotypeModel
         self.datasetSampler=datasetSampler
-        self.lossFunction=lossFunction
         
         #general optimization parameters
         self.maxEpochs=optimizationParameters['maxEpochs']
         self.learningRate = optimizationParameters['initialLearningRate']
+        self.numParticles = optimizationParameters['numParticles']
         
         #compute resources parameters
         self.device=computeConfiguration['device']
@@ -113,18 +111,22 @@ class Optimizers:
         self.num_dataloaders=computeConfiguration['numDataLoaders']
         
         #cosine annealing parameters
+        
         self.withCosineAnnealing = cosineAnnealing['withCosineAnnealing']
         self.cosineAnnealingParameters = [cosineAnnealing['initialRestartInterval'],cosineAnnealing['intervalMultiplier']]
         
-     
+        
 
     def _contstructSVI(self,optimizationStrategy):
         """
         Constructs a list of SVI functions use to train model. Takes optimizationStrategy as input, which must be in ['Full','PosteriorOnly','GuideOnly']
         """
+        
+        
         if optimizationStrategy=='Full':
             _model=self.phenotypeModel.model
             _guide=self.phenotypeModel.guide
+            
         elif optimizationStrategy=='PosteriorOnly':
             test_data = self.datasetSampler.GenerateRandomTrainingSample(2)
             if self.useCuda:
@@ -134,8 +136,19 @@ class Optimizers:
             param_store=pyro.get_param_store()
             
             _model=self.phenotypeModel.model
-            _guide=poutine.block(self.phenotypeModel.guide,hide=[x for x in param_store.get_all_param_names() if 'encoder' in x])
+            _guide=poutine.block(self.phenotypeModel.guide,hide=[x for x in param_store.get_all_param_names() if ('encoder' in x)])
+                        
+        elif optimizationStrategy=='EncoderOnly':
+            test_data = self.datasetSampler.GenerateRandomTrainingSample(2)
+            if self.useCuda:
+                test_data=self._sendDataToGPU(test_data)
+        
+            self.phenotypeModel.guide(*test_data)
+            param_store=pyro.get_param_store()
             
+            _model=self.phenotypeModel.model
+            _guide=poutine.block(self.phenotypeModel.guide,hide=[x for x in param_store.get_all_param_names() if ('encoder' not in x)])
+
         else:
             _model=self.phenotypeModel._encoder_only_model
             _guide=self.phenotypeModel._encoder_only_guide
@@ -145,22 +158,23 @@ class Optimizers:
             
         #initialize the SVI class
         AdamOptimArgs = {'lr': self.learningRate}
-        AdamWOptimArgs = {'lr': self.learningRate,'weight_decay':0.01}
+        AdamWOptimArgs = {'lr': self.learningRate,'weight_decay':0.0001}
         if self.withCosineAnnealing:
-            
-            if optimizationStrategy=='GuideOnly':
+            print(self.learningRate)
+            if optimizationStrategy in ['ScoreBased','EncoderOnly']:
                 scheduler = CosineAnnealingWarmRestarts({'optimizer': AdamW, 'optim_args': AdamWOptimArgs, 'T_0': self.cosineAnnealingParameters[0], 'T_mult': self.cosineAnnealingParameters[1]})
             else:
                 scheduler = CosineAnnealingWarmRestarts({'optimizer': Adam, 'optim_args': AdamOptimArgs, 'T_0': self.cosineAnnealingParameters[0], 'T_mult': self.cosineAnnealingParameters[1]})
                 
-            return {'svi':SVI(_model,_guide,scheduler, loss=self.lossFunction),'scheduler':scheduler}
+            return {'svi':SVI(_model,_guide,scheduler, loss=Trace_ELBO(num_particles=self.numParticles)),'scheduler':scheduler}
                 
         else:  
-            if optimizationStrategy=='GuideOnly':                 
+            if optimizationStrategy in ['ScoreBased','EncoderOnly']:                 
                 scheduler = ReduceLROnPlateau({'optimizer': AdamW, 'optim_args': AdamWOptimArgs, 'threshold': 0.01})
+                
             else:
-                scheduler = ReduceLROnPlateau({'optimizer': Adam, 'optim_args': AdamWOptimArgs, 'threshold': 0.01})
-            return {'svi':SVI(_model,_guide,scheduler, loss=self.lossFunction),'scheduler':scheduler}
+                scheduler = ReduceLROnPlateau({'optimizer': Adam, 'optim_args': AdamOptimArgs, 'threshold': 0.01})
+            return {'svi':SVI(_model,_guide,scheduler, loss=Trace_ELBO(num_particles=self.numParticles)),'scheduler':scheduler}
             
 
     def FullDatasetTrain(self, errorTol:float = 1e-5,verbose:bool=True,logFile=None,optimizationStrategy='Full',errorComputationWindow=None):
@@ -198,11 +212,11 @@ class Optimizers:
         
         
         
-        assert optimizationStrategy in ['Full','PosteriorOnly','GuideOnly'],"Available Optimization strategies: 'Full','PosteriorOnly','GuideOnly'"
+        assert optimizationStrategy in ['Full','PosteriorOnly','ScoreBased','EncoderOnly'],"Available Optimization strategies: 'Full','PosteriorOnly','ScoreBased','EncoderOnly'"
         sviFunction = self._contstructSVI(optimizationStrategy)
         
         # initialize model and parameter storage vectors. Note, parameter storage vectors are stored in a list with each element corresponding to one SVI function
-        bestModelState= self.phenotypeMode.PackageCurrentState()
+        bestModelState= self.phenotypeModel.PackageCurrentState()
         bestModelScore = sviFunction['svi'].evaluate_loss(*testData)
         prev_train_loss = sviFunction['svi'].evaluate_loss(*trainData)
     
@@ -232,7 +246,7 @@ class Optimizers:
             trainLoss+=[currrent_train_loss]
             testLoss+=[current_test_loss]
             
-            elbo_window.append(self.rel_diff(currrent_train_loss,prev_train_loss))
+            elbo_window.append(rel_diff(currrent_train_loss,prev_train_loss))
             avg_error = sum(elbo_window)/len(elbo_window)
             med_error = sorted(elbo_window)[int(0.5*len(elbo_window))]
             prev_train_loss=currrent_train_loss
@@ -310,7 +324,7 @@ class Optimizers:
         trainingDataLoader = data.DataLoader(torchTrainingData,batch_size=1,shuffle=False,sampler=None,batch_sampler=None,num_workers=self.num_dataloaders,collate_fn=lambda x:x[0],pin_memory=self.useCuda)
         testingDataLoader = data.DataLoader(torchTestingData,batch_size=1,shuffle=False,sampler=None,batch_sampler=None,num_workers=self.num_dataloaders,collate_fn=lambda x:x[0],pin_memory=self.useCuda)
         
-        assert optimizationStrategy in ['Full','PosteriorOnly','GuideOnly'],"Available Optimization strategies: 'Full','PosteriorOnly','GuideOnly'"
+        assert optimizationStrategy in ['Full','PosteriorOnly','ScoreBased','EncoderOnly'],"Available Optimization strategies: 'Full','PosteriorOnly','ScoreBased','EncoderOnly'"
         sviFunction = self._contstructSVI(optimizationStrategy)
         
         
@@ -333,7 +347,6 @@ class Optimizers:
         prev_train_loss=avg_epoch_train_loss/(i+1)
         
         for epoch in range(self.maxEpochs):
-
             torchTrainingData.shuffle_index()
             avg_epoch_train_loss = 0.0
             for i,data_batch in enumerate(trainingDataLoader):
@@ -347,13 +360,13 @@ class Optimizers:
                 sviFunction['scheduler'].step(epoch=epoch)
             else:
                 sviFunction['scheduler'].step(avg_epoch_train_loss)
-            
+                
+                
             avg_epoch_test_loss = 0.0
             for i,data_batch in enumerate(testingDataLoader):
                 if self.useCuda:
                     data_batch=self._sendDataToGPU(data_batch)
                 avg_epoch_test_loss+=sviFunction['svi'].evaluate_loss(*data_batch,minibatch_scale = (numTotalTestingSamples/data_batch[0].shape[0]))
-                
             avg_epoch_test_loss=avg_epoch_test_loss/(i+1)
             
             if avg_epoch_test_loss<bestModelScore:
@@ -368,7 +381,7 @@ class Optimizers:
         
     
             
-            elbo_window.append(self.rel_diff(avg_epoch_train_loss,prev_train_loss))
+            elbo_window.append(rel_diff(avg_epoch_train_loss,prev_train_loss))
             avg_error = sum(elbo_window)/len(elbo_window)
             med_error = sorted(elbo_window)[int(0.5*len(elbo_window))]
             prev_train_loss=avg_epoch_train_loss
