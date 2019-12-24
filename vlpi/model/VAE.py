@@ -25,7 +25,7 @@ class VAE(nn.Module):
         self.compute_device=new_compute_device
         self.to(self.compute_device)
         
-    def _encoder_only_model(self,obs_data=None, cat_cov_list=None,label_dx=None, sample_scores=None,numSamples=None,minibatch_scale=1.0):
+    def _encoder_only_model(self,obs_data=None, cat_cov_list=None,label_dx=None, sample_scores=None,numSamples=None,minibatch_scale=1.0,annealing_factor=1.0):
         
         
         assert sample_scores is not None, "Sample scores must be included in order to train the encoder individually."
@@ -36,13 +36,14 @@ class VAE(nn.Module):
 
         latent_vals = torch.zeros(sample_scores.shape,dtype=torch.float32,device=sample_scores.device)
         norm_vals = torch.arange(sample_scores.shape[0],device=sample_scores.device).to(dtype=torch.float32)
-        norm_vals = dist.Normal(0.0,1.0).icdf(1.0-(norm_vals+1.0)/(norm_vals.shape[0]+1.0))
+        
+        norm_vals = dist.Normal(torch.tensor(0.0,device=sample_scores.device,dtype=torch.float32),torch.tensor(1.0,device=sample_scores.device,dtype=torch.float32)).icdf(1.0-(norm_vals+1.0)/(norm_vals.shape[0]+1.0))
         for i in range(self.nLatentDim):
             rankings=sample_scores[:,i].argsort(dim=0,descending=True)
             latent_vals[rankings,i]=norm_vals
 
         #add noise to latent states to prevent overtraining the variance
-        latent_vals+=dist.Normal(0.0,1.0).sample(latent_vals.shape)
+        latent_vals+=dist.Normal(torch.tensor(0.0,dtype=torch.float32,device=sample_scores.device),torch.tensor(1.0,dtype=torch.float32,device =sample_scores.device)).sample(latent_vals.shape)
 
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("rank_pheno_plate",size=numSamples):
@@ -50,7 +51,7 @@ class VAE(nn.Module):
                 pyro.sample("rankPhenotypes",dist.Normal(z_mean, z_std).to_event(1),obs=latent_vals)
 
 
-    def _encoder_only_guide(self,obs_data=None, cat_cov_list=None,label_dx=None, sample_scores=None,numSamples=None,minibatch_scale=1.0):
+    def _encoder_only_guide(self,obs_data=None, cat_cov_list=None,label_dx=None, sample_scores=None,numSamples=None,minibatch_scale=1.0,annealing_factor=1.0):
         assert sample_scores is not None, "Sample scores must be included in order to train the encoder individually."
         assert obs_data is not None, "obs_data must be included when using the _encoder_only_model."
         
@@ -75,7 +76,7 @@ class VAE(nn.Module):
             if linkFunction=='Logit':
                 self.linkFunction = lambda x:torch.sigmoid(x)
             else:
-                self.linkFunction = lambda x:dist.Normal(0.0,1.0).cdf(x)
+                self.linkFunction = lambda x:dist.Normal(torch.tensor(0.0,dtype=torch.float32,device=x.device),torch.tensor(1.0,dtype=torch.float32,device=x.device)).cdf(x)
         
         if 'computeDevice' not in allKeywordArgs:
             """
@@ -110,7 +111,7 @@ class VAE(nn.Module):
         
             
         if 'encoderNetworkHyperparameters' not in allKeywordArgs:
-            self.encoderHyperparameters={'n_layers' : 2, 'n_hidden' : 64, 'dropout_rate': 0.2, 'use_batch_norm':True}
+            self.encoderHyperparameters={'n_layers' : 2, 'n_hidden' : 64, 'dropout_rate': 0.0, 'use_batch_norm':True}
 
         else:
             self.encoderHyperparameters = kwargs['encoderNetworkHyperparameters']
@@ -118,7 +119,7 @@ class VAE(nn.Module):
             assert set(self.encoderHyperparameters.keys())==set(['n_layers','n_hidden','dropout_rate','use_batch_norm']),"Encoder hyperparameters must include: 'n_layers','n_hidden','dropout_rate','use_batch_norm'"
             
         if 'decoderNetworkHyperparameters' not in allKeywordArgs:
-            self.decoderHyperparameters={'n_layers' : 2, 'n_hidden' : 32, 'dropout_rate': 0.1, 'use_batch_norm':True}
+            self.decoderHyperparameters={'n_layers' : 2, 'n_hidden' : 32, 'dropout_rate': 0.0, 'use_batch_norm':True}
 
         else:
             self.decoderHyperparameters = kwargs['decoderNetworkHyperparameters']
@@ -148,7 +149,7 @@ class VAE(nn.Module):
             self.SwitchDevice(self.compute_device)
         self.eval()
         
-    def model(self, obs_data=None, cat_cov_list=None,label_dx=None,sample_scores=None,numSamples=None,minibatch_scale=1.0):
+    def model(self, obs_data=None, cat_cov_list=None,label_dx=None,sample_scores=None,numSamples=None,minibatch_scale=1.0, annealing_factor=1.0):
         if obs_data is not None:
             numSamples=obs_data.shape[0]
         else:
@@ -165,14 +166,15 @@ class VAE(nn.Module):
         
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("latent_pheno_plate",size=numSamples):
-                latentPhenotypes=pyro.sample("latentPhenotypes",dist.Normal(torch.zeros(1,self.nLatentDim,dtype=torch.float32,device=self.compute_device),torch.ones(1,self.nLatentDim,dtype=torch.float32,device=self.compute_device)).to_event(1))
+                with pyro.poutine.scale(None, annealing_factor):
+                    latentPhenotypes=pyro.sample("latentPhenotypes",dist.Normal(torch.zeros(1,self.nLatentDim,dtype=torch.float32,device=self.compute_device),torch.ones(1,self.nLatentDim,dtype=torch.float32,device=self.compute_device)).to_event(1))
                 
                 liability_vals = self.decoder.forward(latentPhenotypes,*cat_cov_list)
                 latent_dx_prob = self.linkFunction(liability_vals)
                 pyro.sample("obsTraitIncidence",dist.Bernoulli(latent_dx_prob).to_event(1),obs=obs_data)
 
 
-    def guide(self,obs_data=None, cat_cov_list=None,label_dx=None,sample_scores=None,numSamples = None,minibatch_scale=1.0):
+    def guide(self,obs_data=None, cat_cov_list=None,label_dx=None,sample_scores=None,numSamples = None,minibatch_scale=1.0,annealing_factor=1.0):
         if obs_data is not None:
             numSamples=obs_data.shape[0]
 
@@ -186,7 +188,8 @@ class VAE(nn.Module):
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("latent_pheno_plate",size=numSamples):
                 z_mean,z_std = self.encoder(obs_data,*cat_cov_list)
-                pyro.sample("latentPhenotypes", dist.Normal(z_mean, z_std).to_event(1))
+                with pyro.poutine.scale(None, annealing_factor):
+                    pyro.sample("latentPhenotypes", dist.Normal(z_mean, z_std).to_event(1))
                 
     
 
@@ -194,7 +197,7 @@ class VAE(nn.Module):
         elboFunc = Trace_ELBO(num_particles=num_particles)
         elboVec = torch.zeros(obs_dis_array.shape[0],dtype=torch.float32,device=self.compute_device)
 
-        for model_trace, guide_trace in elboFunc._get_traces(self.model, self.guide,obs_dis_array,cat_cov_list):
+        for model_trace, guide_trace in elboFunc._get_traces(self.model, self.guide,(obs_dis_array,cat_cov_list),{}):
             elboVec+=model_trace.nodes['obsTraitIncidence']['log_prob'].detach()/num_particles
             elboVec+=model_trace.nodes['latentPhenotypes']['log_prob'].detach()/num_particles
             elboVec-=guide_trace.nodes['latentPhenotypes']['log_prob'].detach()/num_particles

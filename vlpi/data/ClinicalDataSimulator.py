@@ -64,7 +64,7 @@ class ClinicalDataSimulator:
 
 
         if 'outlierPercentile' not in allKeywordArgs:
-            self.outlierPercentile=0.9999
+            self.outlierPercentile=0.999
         else:
             self.outlierPercentile=kwargs['outlierPercentile']
 
