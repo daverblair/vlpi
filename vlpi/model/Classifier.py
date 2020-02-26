@@ -11,7 +11,6 @@ import torch.nn as nn
 import pyro.distributions as dist
 from typing import Iterable
 from vlpi.model.Decoders import  LinearDecoder_Monotonic,LinearDecoder,NonlinearMLPDecoder,NonlinearMLPDecoder_Monotonic
-from vlpi.utils.UtilityFunctions import random_catcov
 import copy
 
 class Classifier(nn.Module):
@@ -55,7 +54,7 @@ class Classifier(nn.Module):
             if linkFunction=='Logit':
                 self.linkFunction = lambda x:torch.sigmoid(x)
             else:
-                self.linkFunction = lambda x:dist.Normal(0.0,1.0).cdf(x)
+                self.linkFunction = lambda x:dist.Normal(torch.tensor(0.0,dtype=torch.float32,device=x.device),torch.tensor(1.0,dtype=torch.float32,device=x.device)).cdf(x)
         
         if 'computeDevice' not in allKeywordArgs:
             """
@@ -91,7 +90,7 @@ class Classifier(nn.Module):
 
             
         if 'decoderNetworkHyperparameters' not in allKeywordArgs:
-            self.decoderHyperparameters={'n_layers' : 2, 'n_hidden' : 32, 'dropout_rate': 0.1, 'use_batch_norm':True}
+            self.decoderHyperparameters={'n_layers' : 2, 'n_hidden' : 32, 'dropout_rate': 0.0, 'use_batch_norm':True}
 
         else:
             self.decoderHyperparameters = kwargs['decoderNetworkHyperparameters']
@@ -119,7 +118,7 @@ class Classifier(nn.Module):
             self.SwitchDevice(self.compute_device)
         self.eval()
 
-    def model(self,obs_data=None, cat_cov_list=None,anchor_dx=None,sample_scores=None,minibatch_scale=1.0):
+    def model(self,obs_data=None, cat_cov_list=None,anchor_dx=None,sample_scores=None,minibatch_scale=1.0,annealing_factor=1.0):
         assert obs_data is not None,"Model requires input data. To simulate random samples, use SimulateData function."
         assert anchor_dx is not None,"Model requires input of latent dx data"
         assert anchor_dx.shape[0]==obs_data.shape[0],"Dimensions of anchor and observed dx data must match."
@@ -132,7 +131,7 @@ class Classifier(nn.Module):
                 latent_dx_prob = self.linkFunction(liabilities)
                 pyro.sample("anchorDisDx",dist.Bernoulli(latent_dx_prob).to_event(1),obs=anchor_dx)
 
-    def guide(self,obs_data=None, cat_cov_list=None,anchor_dx=None,sample_scores=None,minibatch_scale=1.0):
+    def guide(self,obs_data=None, cat_cov_list=None,anchor_dx=None,sample_scores=None,minibatch_scale=1.0,annealing_factor=1.0):
         assert obs_data is not None,"Model requires input data. To simulate random samples, use SimulateData function."
         assert anchor_dx is not None,"Model requires input of latent dx data"
         assert anchor_dx.shape[0]==obs_data.shape[0],"Dimensions of anchor and observed dx data must match."

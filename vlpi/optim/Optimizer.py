@@ -170,21 +170,18 @@ class Optimizer:
         Constructs a list of SVI functions use to train model. Takes optimizationStrategy as input, which must be in ['Full','PosteriorOnly','GuideOnly']
         """
         
+        #generate random sample just to build the param_store
+        test_data = self.datasetSampler.GenerateRandomTrainingSample(2)
+        if self.useCuda:
+                test_data=self._sendDataToGPU(test_data)
+        self.phenotypeModel.guide(*test_data)
+        param_store=pyro.get_param_store()
         
-        
-        if optimizationStrategy=='ScoreBased':
-            _model=self.phenotypeModel._encoder_only_model
-            _guide=self.phenotypeModel._encoder_only_guide
-        elif optimizationStrategy=='Full':
+        if optimizationStrategy=='Full':
             _model=self.phenotypeModel.model
             _guide=self.phenotypeModel.guide
         
         else:
-            test_data = self.datasetSampler.GenerateRandomTrainingSample(2)
-            if self.useCuda:
-                test_data=self._sendDataToGPU(test_data)
-            self.phenotypeModel.guide(*test_data)
-            param_store=pyro.get_param_store()
             if optimizationStrategy=='DecoderOnly':
                 _model=self.phenotypeModel.model
                 _guide=poutine.block(self.phenotypeModel.guide,hide=[x for x in param_store.get_all_param_names() if ('encoder' in x)])
@@ -237,7 +234,7 @@ class Optimizer:
         
         
         
-        assert optimizationStrategy in ['ScoreBased','Full','EncoderOnly','DecoderOnly'],"Available Optimization strategies: ['ScoreBased','Full','EncoderOnly','DecoderOnly']"
+        assert optimizationStrategy in ['DummyEncoder','Full','EncoderOnly','DecoderOnly'],"Available Optimization strategies: ['DummyEncoder','Full','EncoderOnly','DecoderOnly']"
         sviFunction = self._contstructSVI(optimizationStrategy,self.maxEpochs)
         annealer =AnnealingScheduler(self.KLAnnealingParams['initialTemp'],self.KLAnnealingParams['maxTemp'],int(self.maxEpochs*self.KLAnnealingParams['fractionalDuration']),self.KLAnnealingParams['schedule'])
         paramUpdateNum = 0
@@ -280,6 +277,7 @@ class Optimizer:
             med_error = sorted(error_window)[int(0.5*len(error_window))]
             slope_error = self._returnELBOSlope(elbo_window)
             prev_train_loss=currrent_train_loss
+            
             errorVec+=[min([avg_error,med_error,slope_error])]
             
             if (avg_error < errorTol) or (med_error < errorTol) or (slope_error<errorTol):
@@ -353,7 +351,7 @@ class Optimizer:
         
         
         
-        assert optimizationStrategy in ['ScoreBased','Full','EncoderOnly','DecoderOnly'],"Available Optimization strategies: ['ScoreBased','Full','EncoderOnly','DecoderOnly']"
+        assert optimizationStrategy in ['DummyEncoder','Full','EncoderOnly','DecoderOnly'],"Available Optimization strategies: ['DummyEncoder','Full','EncoderOnly','DecoderOnly']"
         sviFunction = self._contstructSVI(optimizationStrategy,len(torchTrainingData)*self.maxEpochs)
         annealer=AnnealingScheduler(self.KLAnnealingParams['initialTemp'],self.KLAnnealingParams['maxTemp'],int(len(torchTrainingData)*(self.maxEpochs*self.KLAnnealingParams['fractionalDuration'])),self.KLAnnealingParams['schedule'])
         paramUpdateNum=0

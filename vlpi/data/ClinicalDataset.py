@@ -103,7 +103,7 @@ class ClinicalDataset:
         by using using ConvertCodes function.
         
         clinicalDataset-->fileName for clinical dataset
-        dxCodeColumn-->column that contains a comma-separated list of associated ICD codes
+        dxCodeColumn-->column that contains a comma-separated list of associated ICD codes, first column denoted by 0
         indexColumn-->column to use as index for the dataset
         skipColumns-->list that indicates which columns should be skipped [uses 0-based indexing]
         has_header-->indicates whether file has header, which is used to generate column names
@@ -509,7 +509,7 @@ class ClinicalDatasetSampler():
             self.arrayFunc=self._scipySparseWrapper
             
         self._returnScores=False
-        self._scoreVector=None
+        self._scoreData=None
             
 
         if shuffle==True:
@@ -633,7 +633,7 @@ class ClinicalDatasetSampler():
         if not self._returnScores:
             score_data = None
         else:
-            score_data = self.arrayFunc(np.concatenate(self._scoreVector.loc[newIndex]['scores'].values))
+            score_data = self.arrayFunc(np.concatenate(self._scoreData.loc[newIndex]['scores'].values))
             
         return incidenceData,covData,target_data,score_data
     
@@ -795,16 +795,20 @@ class ClinicalDatasetSampler():
         else:
             return torch.cat(list_of_arrays,dim=1,dtype=torch.float32)
         
-    def AddScoresToDataset(self,scoreVector,index):
-        self._returnScores=True
+    def AddScoresToDataset(self,index,scoreMeans,scoreVariances):
+        assert len(scoreMeans.shape)==2 and len(scoreVariances.shape)==2,"Must provide mean and variance for every sample and every dimension"
         
-        self._scoreVector=pd.DataFrame({'patient_id':index,'scores':np.split(scoreVector,scoreVector.shape[0])})
-        self._scoreVector.set_index('patient_id',drop=True,inplace=True)
+        
+        self._returnScores=True
+        compact_scores = np.concatenate([scoreMeans[:,:,np.newaxis],scoreVariances[:,:,np.newaxis]],axis=-1)
+        
+        self._scoreData=pd.DataFrame({'patient_id':index,'scores':np.split(compact_scores,compact_scores.shape[0])})
+        self._scoreData.set_index('patient_id',drop=True,inplace=True)
         
         
     def RemoveScoresFromDataset(self):
         self._returnScores=False
-        self._scoreVector=None
+        self._scoreData=None
            
 class _TorchDatasetWrapper(data.Dataset):
     

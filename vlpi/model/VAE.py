@@ -25,36 +25,7 @@ class VAE(nn.Module):
         self.compute_device=new_compute_device
         self.to(self.compute_device)
         
-    def _encoder_only_model(self,obs_data=None, cat_cov_list=None,label_dx=None, sample_scores=None,numSamples=None,minibatch_scale=1.0,annealing_factor=1.0):
-        
-        
-        assert sample_scores is not None, "Sample scores must be included in order to train the encoder individually."
-        assert obs_data is not None, "obs_data must be included when using the _encoder_only_model."
-        pyro.module("encoder", self.encoder,update_module_params=False)
-
-        numSamples=obs_data.shape[0]
-
-        latent_vals = torch.zeros(sample_scores.shape,dtype=torch.float32,device=sample_scores.device)
-        norm_vals = torch.arange(sample_scores.shape[0],device=sample_scores.device).to(dtype=torch.float32)
-        
-        norm_vals = dist.Normal(torch.tensor(0.0,device=sample_scores.device,dtype=torch.float32),torch.tensor(1.0,device=sample_scores.device,dtype=torch.float32)).icdf(1.0-(norm_vals+1.0)/(norm_vals.shape[0]+1.0))
-        for i in range(self.nLatentDim):
-            rankings=sample_scores[:,i].argsort(dim=0,descending=True)
-            latent_vals[rankings,i]=norm_vals
-
-        #add noise to latent states to prevent overtraining the variance
-        latent_vals+=dist.Normal(torch.tensor(0.0,dtype=torch.float32,device=sample_scores.device),torch.tensor(1.0,dtype=torch.float32,device =sample_scores.device)).sample(latent_vals.shape)
-
-        with pyro.poutine.scale(None,minibatch_scale):
-            with pyro.plate("rank_pheno_plate",size=numSamples):
-                z_mean,z_std = self.encoder(obs_data,*cat_cov_list)
-                pyro.sample("rankPhenotypes",dist.Normal(z_mean, z_std).to_event(1),obs=latent_vals)
-
-
-    def _encoder_only_guide(self,obs_data=None, cat_cov_list=None,label_dx=None, sample_scores=None,numSamples=None,minibatch_scale=1.0,annealing_factor=1.0):
-        assert sample_scores is not None, "Sample scores must be included in order to train the encoder individually."
-        assert obs_data is not None, "obs_data must be included when using the _encoder_only_model."
-        
+   
     def __init__(self,numObsTraits:int, numCatList:Iterable[int],nLatentDim:int,decoderType:str,**kwargs):
         super(VAE,self).__init__()
         self.numObsTraits=numObsTraits
@@ -119,7 +90,7 @@ class VAE(nn.Module):
             assert set(self.encoderHyperparameters.keys())==set(['n_layers','n_hidden','dropout_rate','use_batch_norm']),"Encoder hyperparameters must include: 'n_layers','n_hidden','dropout_rate','use_batch_norm'"
             
         if 'decoderNetworkHyperparameters' not in allKeywordArgs:
-            self.decoderHyperparameters={'n_layers' : 2, 'n_hidden' : 32, 'dropout_rate': 0.0, 'use_batch_norm':True}
+            self.decoderHyperparameters={'n_layers' : 2, 'n_hidden' : 64, 'dropout_rate': 0.0, 'use_batch_norm':True}
 
         else:
             self.decoderHyperparameters = kwargs['decoderNetworkHyperparameters']
@@ -187,7 +158,10 @@ class VAE(nn.Module):
 
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("latent_pheno_plate",size=numSamples):
-                z_mean,z_std = self.encoder(obs_data,*cat_cov_list)
+                if sample_scores is None:
+                    z_mean,z_std = self.encoder(obs_data,*cat_cov_list)
+                else:
+                    z_mean,z_std = sample_scores[:,:,0],sample_scores[:,:,1]
                 with pyro.poutine.scale(None, annealing_factor):
                     pyro.sample("latentPhenotypes", dist.Normal(z_mean, z_std).to_event(1))
                 
@@ -252,7 +226,7 @@ if __name__=='__main__':
     
     
     simulator = ClinicalDataSimulator(numAssociatedTraits,nLatentSimDim,numCatList=numCovPerClass)
-    simData=simulator.GenerateClinicalData(numSamples,0.0)
+    simData=simulator.GenerateClinicalData(numSamples)
     
     clinData = ClinicalDataset()
     

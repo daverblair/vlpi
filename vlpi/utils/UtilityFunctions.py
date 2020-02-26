@@ -12,6 +12,7 @@ from scipy.stats import norm
 from scipy.optimize import fsolve
 from scipy import sparse
 from scipy.stats import fisher_exact as _fisher_exact
+from scipy.stats import ttest_ind
 
 def build_onehot_arrays(cat_cov_list,nCatCovList,dropOneColumn):
     """
@@ -125,3 +126,18 @@ def fisher_exact(dataMatrix,incidenceVec):
         pvals[feature_i]=fisher_test_results[1]
     return scores,pvals
 
+
+def T_test(dataMatrix,scoreVec):
+    scores = np.zeros(dataMatrix.shape[1],dtype=np.float64)
+    pvals = np.zeros(dataMatrix.shape[1],dtype=np.float64)
+    for feature_i in range(dataMatrix.shape[1]):
+        where_nonzero=dataMatrix[:,feature_i].nonzero()[0]
+        where_zero = np.setdiff1d(np.arange(dataMatrix.shape[0]),where_nonzero)
+    
+        pop_a = scoreVec[where_nonzero]
+        pop_b = scoreVec[where_zero]
+    
+        stats = ttest_ind(pop_a, pop_b,equal_var=False)
+        scores[feature_i]=stats[0]
+        pvals[feature_i]=stats[1]
+    return scores,pvals

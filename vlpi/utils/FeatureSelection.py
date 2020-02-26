@@ -5,9 +5,10 @@ Created on Thu Nov 21 11:34:37 2019
 
 @author: davidblair
 """
-from sklearn.feature_selection import SelectFdr,chi2
-from vlpi.utils.UtilityFunctions import fisher_exact
+from sklearn.feature_selection import SelectFdr,chi2,f_regression
+from vlpi.utils.UtilityFunctions import fisher_exact,T_test
 import numpy as np
+
 
 class FeatureSelection:
     
@@ -19,13 +20,39 @@ class FeatureSelection:
         
         self.sampler=datasetSampler
         
+    def SelectComorbidTraits_ContinuousFeature(self,featureVector,FDR,modifyDataset=False,use_ttest=False):
+        
+        previousArrayType = self.sampler.returnArrays
+        if self.sampler.returnArrays!='Sparse':
+            self.sampler.ChangeArrayType('Sparse')
+            
+        sparseTrainingData=self.sampler.ReturnFullTrainingDataset(randomize=False)
+        dataMatrix=sparseTrainingData[0]
+        
+        if use_ttest:
+            fdr=SelectFdr(T_test, alpha=FDR)
+        else:
+            fdr=SelectFdr(f_regression, alpha=FDR)
+        
+        fdr_fit = fdr.fit(dataMatrix,featureVector)
+        discIndx=np.where(fdr_fit.get_support()==True)[0]
+            
+        
+        if modifyDataset:
+            self.sampler.currentClinicalDataset.IncludeOnly([self.sampler.currentClinicalDataset.dataIndexToDxCodeMap[x] for x in discIndx])
+        
+        if previousArrayType!='Sparse':
+            self.sampler.ChangeArrayType(previousArrayType)
+        
+        return discIndx, fdr_fit.scores_[discIndx],fdr_fit.pvalues_[discIndx]
+        
     def SelectComorbidTraits(self,FDR,modifyDataset=False,useChi2=True):
         """
         Selects comorbid traits from the dataset at a false discovery rate of FDR.
         
         datasetSampler: sampler class
         FDR: false discovery rate
-        modifyDataset: indicates whether to modify datset such that only comorbid terms are included in further analyses.
+        modifyDataset: indicates whether to modify dataset such that only comorbid terms are included in further analyses.
         useChi2: whether chi2 (default) should be used for comorbidity. Alternative is fisher's exact test, which is slower
         
         """

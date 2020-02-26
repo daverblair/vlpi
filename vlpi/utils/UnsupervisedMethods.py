@@ -107,10 +107,14 @@ class PhenotypeDecomposition():
             if sprs.issparse(data_array)==False:
                 covariate_matrix=sprs.csr_matrix(covariate_matrix)
             embeddings-=self.linearCovariateModel.predict(covariate_matrix)
-        euclid_dist_from_centroid = np.sqrt(np.sum((embeddings-self.phenotype_centroid)**2.0,axis=1,keepdims=True))
+            
+        
+        vec_direcs = embeddings-self.phenotype_centroid
+        vec_direcs[vec_direcs<0.0]=0.0
+        morbidity_scores = np.sqrt(np.sum(vec_direcs**2.0,axis=1,keepdims=True))
         reconScores=self._KL_Diverg(transformed_data,np.dot(embeddings,self.ReturnComponents()))
         
-        return embeddings,euclid_dist_from_centroid,reconScores
+        return embeddings,morbidity_scores,reconScores
         
     def ReturnComponents(self):
         return self.embed_model.components_
@@ -233,11 +237,10 @@ if __name__=='__main__':
     numMendelianComponents=2
     nObsDis=20
     nSamples=100000
-    outlierFrac = 0.001
     from vlpi.data.ClinicalDataSimulator import ClinicalDataSimulator
     
     simulator = ClinicalDataSimulator(nObsDis,nLatentDim,latentPhenotypeEffectsPrior=[1.0,5.0],anchorDxNoisePrior=[0.5,10.0],interceptPriors=[-3.0,1.0],anchorDxThresholdPrior=[0.0001,0.01],numMendelianComponents=numMendelianComponents)
-    simData=simulator.GenerateClinicalData(nSamples,outlierFrac)
+    simData=simulator.GenerateClinicalData(nSamples)
     simAnchors = simulator.GenerateLabelDx(simData['latent_phenotypes'])
     
     phers=PheRS()
@@ -262,24 +265,8 @@ if __name__=='__main__':
     pr=precision_recall_curve(simAnchors['label_dx_data'].numpy(),pred_anchors_true)
     plt.step(pr[1],pr[0],color='g')
     
-    plt.figure()
-    centroid=simData['latent_phenotypes'].numpy().mean(axis=0)
-    true_euclid_dist = np.sqrt(np.sum((simData['latent_phenotypes'].numpy()-centroid)**2,axis=1,keepdims=True))
-    
-    pred_disease_liability = np.sum(simAnchors['model_params']['labelDxMap'].numpy()*simData['latent_phenotypes'].numpy(),axis=1,keepdims=True)
-    
-    plt.plot(true_euclid_dist[simData['is_outlier'].numpy()==0],pred_disease_liability[simData['is_outlier'].numpy()==0],'o')
-    plt.plot(true_euclid_dist[simData['is_outlier'].numpy()==1],pred_disease_liability[simData['is_outlier'].numpy()==1],'o')
-    
-    plt.figure()
-    
-    plt.plot(true_euclid_dist[simData['is_outlier'].numpy()==0],dist[simData['is_outlier'].numpy()==0],'o')
-    plt.plot(true_euclid_dist[simData['is_outlier'].numpy()==1],dist[simData['is_outlier'].numpy()==1],'o')
-    
-    plt.figure()
-    plt.plot(true_euclid_dist[simAnchors['label_dx_data'].numpy()==0],pred_disease_liability[simAnchors['label_dx_data'].numpy()==0],'o')
-    plt.plot(true_euclid_dist[simAnchors['label_dx_data'].numpy()==1],pred_disease_liability[simAnchors['label_dx_data'].numpy()==1],'o')
-    
+
+
 #
     
     

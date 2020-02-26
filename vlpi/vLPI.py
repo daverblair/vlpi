@@ -11,7 +11,6 @@ import pyro
 import numpy as np
 from vlpi.optim.Optimizer import Optimizer
 from vlpi.data.ClinicalDataset import ClinicalDatasetSampler,ClinicalDataset
-from vlpi.utils.UnsupervisedMethods import PhenotypeDecomposition
 from vlpi.model.VAE import VAE
 from vlpi.model.Classifier import Classifier as _Classifier
 from sklearn.linear_model import LogisticRegression
@@ -38,7 +37,7 @@ class vLPI:
 
             dropLinearCovariateColumn: boolean value indicated whether to drop one category from each covariate included into the model. Aids in identifiability. Defaults to True.
 
-            encoderNetworkHyperparameters: speficies hyperparameters of the encoder neural networks. Default is a 2-layer MLP with 128 hidden nodes per layer. Dropout rate 0.2 with Batch-Normalization enabled. Larger networks are more difficult to train, while smaller networks are less expressive and may result in poorer approximations of the variational posterior.
+            encoderNetworkHyperparameters: speficies hyperparameters of the encoder neural networks. Default is a 2-layer MLP with 64 hidden nodes per layer. Dropout rate 0.0 with Batch-Normalization enabled. Larger networks are more difficult to train, while smaller networks are less expressive and may result in poorer approximations of the variational posterior. Allowing for dropout appears to limit the models ability to detect rare events. 
 
 
         """
@@ -54,7 +53,7 @@ class vLPI:
         assert latentPhenotypeMap in ['Linear','Linear_Monotonic','Nonlinear','Nonlinear_Monotonic'], "Currently supported latent-to-observed phenotype maps include: 'Linear','Linear_Monotonic','Nonlinear','Nonlinear_Monotonic'"
         
         if latentPhenotypeMap!='Linear_Monotonic':
-            print('WARNING: Software is currently optimized for the Linear_Monotonic mapping function. Other mapping functions are experimental, as model initialization and optimization parameters were specifically chosen with this mapping function in mind. Properly optimizing these other functions may require modification to initialization routine AND/OR experimenting with optimization hyperparameters.')
+            print('WARNING: Software is currently optimized for the Linear_Monotonic mapping function. Other mapping functions are experimental, as model optimization parameters were specifically chosen with this mapping function in mind. Properly optimizing these other functions may require experimenting with optimization hyperparameters.')
         
         self.model = VAE(self.sampler.currentClinicalDataset.numDxCodes, n_cat_list,nLatentDim,latentPhenotypeMap,**kwargs)
 
@@ -88,10 +87,15 @@ class vLPI:
         allKeywordArgs = list(kwargs.keys())
 
         #allows user to keep the param store the same if re-starting optimization, for example, after loading from disk
-        if 'alreadyInitialized' in allKeywordArgs:
-            alreadyInitialized=kwargs['alreadyInitialized']
+        if 'scoreInitializationParameters' in allKeywordArgs:
+            scoreInitializationParameters = kwargs['scoreInitializationParameters']
+            assert len(scoreInitializationParameters)==3,"Expects a tuple/list consisting of patient index, score means and score standard deviations, provided in that order"
+            assert (scoreInitializationParameters[0].shape[0] == self.sampler.numTotalSamples) and (scoreInitializationParameters[1].shape[0] == self.sampler.numTotalSamples) and (scoreInitializationParameters[2].shape[0] == self.sampler.numTotalSamples),"Index, mean and standard error arrays must have one row per sample"
+            assert (scoreInitializationParameters[1].shape[1] == self.model.nLatentDim) and (scoreInitializationParameters[2].shape[1] == self.model.nLatentDim),"Both mean and standard error arrays must have one column per latent dimension"
+            
+            assert np.sum(scoreInitializationParameters[2]>=0.0)==scoreInitializationParameters[1].size,"All standard errors must be > 0.0"
         else:
-            alreadyInitialized=False
+            scoreInitializationParameters=None
 
 
         if 'maxLearningRate' in allKeywordArgs:
@@ -99,15 +103,11 @@ class vLPI:
         else:
             maxLearningRate=0.04
 
-        if 'initErrorTol' in allKeywordArgs:
-            initErrorTol=kwargs['initErrorTol']
-        else:
-            initErrorTol = 1e-4
-            
+
         if 'finalErrorTol' in allKeywordArgs:
             finalErrorTol=kwargs['finalErrorTol']
         else:
-            finalErrorTol=initErrorTol/100.0
+            finalErrorTol=1e-4
 
         if 'numParticles' in allKeywordArgs:
             numParticles=kwargs['numParticles']
@@ -152,35 +152,27 @@ class vLPI:
         
 
 
-        if alreadyInitialized==False:
-            print("Initializing the encoder by training the against ICA-initialized NMF Model.")
-            trainScores,testScores,components = self.ComputeNMF_Embeddings(num_components=self.model.nLatentDim,error_tol=finalErrorTol)
+        if scoreInitializationParameters is not None:
+            print("Initializing the model by training decoder against fixed latent score parameters.")
 
-            scoreVector = np.concatenate([trainScores,testScores])
-            allSampleIndex = np.concatenate([self.sampler.trainingDataIndex,self.sampler.testDataIndex])
-            self.sampler.AddScoresToDataset(scoreVector,allSampleIndex)
+            self.sampler.AddScoresToDataset(*scoreInitializationParameters)
 
 
             optimizer=Optimizer(self.model,self.sampler,optimizationParameters={'maxLearningRate': maxLearningRate,'maxEpochs': maxEpochs,'numParticles':numParticles},computeConfiguration={'device':computeDevice,'numDataLoaders':numDataLoaders},OneCycleParams=OneCycleParams)
             if batch_size > 0:
-                output=optimizer.BatchTrain(batch_size,errorTol=initErrorTol,optimizationStrategy='ScoreBased',verbose=verbose)
+                output=optimizer.BatchTrain(batch_size,errorTol=finalErrorTol,optimizationStrategy='DummyEncoder',verbose=verbose)
             else:
-                output=optimizer.FullDatasetTrain(errorTol=initErrorTol,optimizationStrategy='ScoreBased',verbose=verbose)
+                output=optimizer.FullDatasetTrain(errorTol=finalErrorTol,optimizationStrategy='DummyEncoder',verbose=verbose)
 
             self.sampler.RemoveScoresFromDataset()
-            print("Initializing the decoder by training against the NMF encoder.")
+            print("Initializing the encoder by training against the decoder.")
 
 
             if batch_size > 0:
-                output=optimizer.BatchTrain(batch_size,errorTol=initErrorTol,optimizationStrategy='DecoderOnly',verbose=verbose)
+                output=optimizer.BatchTrain(batch_size,errorTol=finalErrorTol,optimizationStrategy='EncoderOnly',verbose=verbose)
             else:
-                output=optimizer.FullDatasetTrain(errorTol=initErrorTol,optimizationStrategy='DecoderOnly',verbose=verbose)
-            print("Re-initializing the encoder by training against the decoder.")
+                output=optimizer.FullDatasetTrain(errorTol=finalErrorTol,optimizationStrategy='EncoderOnly',verbose=verbose)
 
-            if batch_size > 0:
-                output=optimizer.BatchTrain(batch_size,errorTol=initErrorTol,optimizationStrategy='EncoderOnly',verbose=verbose)
-            else:
-                output=optimizer.FullDatasetTrain(errorTol=initErrorTol,optimizationStrategy='EncoderOnly',verbose=verbose)
 
             print("Model successfully initialized. ELBO:{0:10.2f}".format(-1.0*output[0]))
         print("Optimizing full model.")
@@ -191,29 +183,119 @@ class vLPI:
             output=optimizer.FullDatasetTrain(errorTol=finalErrorTol,optimizationStrategy='Full',verbose=verbose)
         print('Inference complete. Final ELBO:{0:10.2f}'.format(-1.0*output[0]))
         return -1.0*output[0]
+    
+    def ComputeEmbeddings(self,dataArrays=None,randomize=False,returnStdErrors=False):
+        """
+        Returns low dimnsional embeddings for dataset. By default, perfoms
+        operation on ful testing and training dataset contained withinin sampler 
+        unless dataArrays are provided, in which case embeddings are computed
+        for the provided arrays.
+    
 
-    def ComputeEmbeddings(self):
-        previousArrayType = self.sampler.returnArrays
-        if self.sampler.returnArrays!='Torch':
-            self.sampler.ChangeArrayType('Torch')
+        Parameters
+        ----------
+        dataArray : 2-tuple of array-like data structures, corresponding to 
+        (incicidence array, [list of categorical covariates]), optional
+            Can provide custom arrays not contained within ClinicalDatasetSampler 
+            in order to compute embeddings. The default value is None.
+        randomize : bool, optional
+            Determines whether to shuffle training/testing data prior to 
+            computation over data contained within ClinicalDatasetSampler.
+            The default is False.
 
-        trainingData=self.sampler.ReturnFullTrainingDataset(randomize=False)
-        testingData=self.sampler.ReturnFullTestingDataset(randomize=False)
+        Returns
+        -------
+        numpy array
+            training set embeddings.
+        numpy array
+            training set embeddings.
+            
+        -- or --
+        
+        numpy array
+            embeddings for dataArrays
+        """
+        
+        if dataArrays is None:
+        
+            previousArrayType = self.sampler.returnArrays
+            if self.sampler.returnArrays!='Torch':
+                self.sampler.ChangeArrayType('Torch')
+    
+            trainingData=self.sampler.ReturnFullTrainingDataset(randomize=randomize)
+            testingData=self.sampler.ReturnFullTestingDataset(randomize=randomize)
+    
+            train_embed = self.model.PredictLatentPhenotypes(trainingData[0],trainingData[1],returnScale=returnStdErrors)
+            test_embed = self.model.PredictLatentPhenotypes(testingData[0],testingData[1],returnScale=returnStdErrors)
+    
+            if previousArrayType!='Torch':
+                self.sampler.ChangeArrayType(previousArrayType)
+                
+            if returnStdErrors:
+                return (train_embed[0].detach().numpy(),train_embed[1].detach().numpy()),(test_embed[0].detach().numpy(),test_embed[1].detach().numpy())
+            else:
+                return train_embed.detach().numpy(),test_embed.detach().numpy()
+        
+        else:
+            incidence_array = dataArrays[0]
+            
+            if torch.is_tensor(incidence_array) is False:
+                incidence_array=sampler._torchWrapper(incidence_array)
+                
+            list_cov_arrays=[]
+            for x in dataArrays[1]:
+                if torch.is_tensor(x) is False:
+                    x=sampler._torchWrapper(x)
+                list_cov_arrays+=[x]
+                
+            embeddings=self.model.PredictLatentPhenotypes(incidence_array, list_cov_arrays,returnScale=returnStdErrors)
+            
+            if returnStdErrors:
+                return embeddings[0].detach().numpy(),embeddings[1].detach().numpy()
+            else:
+                return embeddings.detach().numpy()
+            
+                
+        
+        
 
-        train_embed = self.model.PredictLatentPhenotypes(trainingData[0],trainingData[1])
-        test_embed = self.model.PredictLatentPhenotypes(testingData[0],testingData[1])
+    def ComputeMorbidityScores(self,dataArrays=None,centroid=None):
+        
+        if dataArrays is None:
+            trainEmbeddings,testEmbeddings = self.ComputeEmbeddings()
+            if centroid is None:
+                centroid = np.mean(trainEmbeddings,axis=0)
+            
+            vec_direcs_train = trainEmbeddings-centroid
+            vec_direcs_train[vec_direcs_train<0.0]=0.0
+            
+            vec_direcs_test = testEmbeddings-centroid
+            vec_direcs_test[vec_direcs_test<0.0]=0.0
+            return np.sqrt(np.sum(vec_direcs_train**2.0,axis=1)),np.sqrt(np.sum(vec_direcs_test**2.0,axis=1))
+        
+        else:
+            incidence_array = dataArrays[0]
+            
+            if torch.is_tensor(incidence_array) is False:
+                incidence_array=sampler._torchWrapper(incidence_array)
+                
+            list_cov_arrays=[]
+            for x in dataArrays[1]:
+                if torch.is_tensor(x) is False:
+                    x=sampler._torchWrapper(x)
+                list_cov_arrays+=[x]
+            
+            embeddings=self.model.PredictLatentPhenotypes(incidence_array, list_cov_arrays).detach().numpy()
+            if centroid is None:
+                trainEmbeddings,testEmbeddings = self.ComputeEmbeddings()
+                centroid = np.mean(trainEmbeddings,axis=0)
+            
+            vec_direcs= embeddings-centroid
+            vec_direcs[vec_direcs<0.0]=0.0
+            return np.sqrt(np.sum(vec_direcs**2.0,axis=1))
+                
 
-        if previousArrayType!='Torch':
-            self.sampler.ChangeArrayType(previousArrayType)
-        return train_embed.detach().numpy(),test_embed.detach().numpy()
-
-    def ComputeOutlierScores(self):
-        trainEmbeddings,testEmbeddings = self.ComputeEmbeddings()
-        centroid = np.mean(trainEmbeddings,axis=0)
-        return np.sqrt(np.sum((testEmbeddings-centroid)**2.0,axis=1))
-
-
-    def ReturnComponents(self,includeCI=False):
+    def ReturnComponents(self):
 
         assert self.model.decoderType in ['Linear_Monotonic','Linear'],"Components only availabe for Linear models. vLPI fit using a non-linear mapping function."
         mapping_func_state_dict = self.model.decoder.state_dict()
@@ -224,43 +306,37 @@ class vLPI:
             return mapping_func_state_dict['linear_latent.weight'].detach().numpy().T
 
 
-
-
-    def ComputeNMF_Embeddings(self,num_components=1,includeCovariates=False,**kwargs):
-        previousArrayType = self.sampler.returnArrays
-        if self.sampler.returnArrays!='Sparse':
-            self.sampler.ChangeArrayType('Sparse')
-        sparseTrainingData=self.sampler.ReturnFullTrainingDataset(randomize=False)
-        sparseTestingData=self.sampler.ReturnFullTestingDataset(randomize=False)
-        if includeCovariates:
-            train_cov_matrix = self.sampler.CollapseDataArrays(cov_vecs=sparseTrainingData[1])
-            test_cov_matrix = self.sampler.CollapseDataArrays(cov_vecs=sparseTestingData[1])
-        else:
-            train_cov_matrix=None
-            test_cov_matrix=None
-
-        embed=PhenotypeDecomposition(num_components=num_components,**kwargs)
-
-        trainEmbeddings,centroid=embed.FitModel(sparseTrainingData[0],covariateMatrix=train_cov_matrix)
-        testEmbeddings,dist,recon_errors = embed.ComputeScores(sparseTestingData[0],test_cov_matrix)
-        if previousArrayType!='Sparse':
-            self.sampler.ChangeArrayType(previousArrayType)
-        return trainEmbeddings,testEmbeddings,embed.ReturnComponents()
     
-    def ComputePerplexity(self):
-        previousArrayType = self.sampler.returnArrays
-        if self.sampler.returnArrays!='Torch':
-            self.sampler.ChangeArrayType('Torch')
-
-        trainingData=self.sampler.ReturnFullTrainingDataset(randomize=False)
-        testingData=self.sampler.ReturnFullTestingDataset(randomize=False)
-
-        train_elbo = self.model.ComputeELBOPerDatum(trainingData[0],trainingData[1])
-        test_elbo = self.model.ComputeELBOPerDatum(testingData[0],testingData[1])
-
-        if previousArrayType!='Torch':
-            self.sampler.ChangeArrayType(previousArrayType)
-        return -1.0*train_elbo.detach().numpy(),-1.0*test_elbo.detach().numpy()
+    def ComputePerplexity(self,dataArrays=None):
+        if dataArrays is None:
+            previousArrayType = self.sampler.returnArrays
+            if self.sampler.returnArrays!='Torch':
+                self.sampler.ChangeArrayType('Torch')
+    
+            trainingData=self.sampler.ReturnFullTrainingDataset(randomize=False)
+            testingData=self.sampler.ReturnFullTestingDataset(randomize=False)
+    
+            train_elbo = self.model.ComputeELBOPerDatum(trainingData[0],trainingData[1])
+            test_elbo = self.model.ComputeELBOPerDatum(testingData[0],testingData[1])
+    
+            if previousArrayType!='Torch':
+                self.sampler.ChangeArrayType(previousArrayType)
+            return -1.0*train_elbo.detach().numpy(),-1.0*test_elbo.detach().numpy()
+        else:
+            incidence_array = dataArrays[0]
+            
+            if torch.is_tensor(incidence_array) is False:
+                incidence_array=sampler._torchWrapper(incidence_array)
+                
+            list_cov_arrays=[]
+            for x in dataArrays[1]:
+                if torch.is_tensor(x) is False:
+                    x=sampler._torchWrapper(x)
+                list_cov_arrays+=[x]
+            elbo=self.model.ComputeELBOPerDatum(incidence_array, list_cov_arrays)
+            return -1.0*elbo.detach().numpy()
+            
+            
         
         
 
@@ -327,7 +403,57 @@ class Classifier:
         
     def ElasticNet(self,verbose=True,**kwargs):
         
-        linMod = LogisticRegression(penalty='elasticnet',tol=errorTol,verbose=verbose,fit_intercept=True,max_iter=maxFittingIterations,solver='saga',warm_start=True)
+        allKeywordArgs = list(kwargs.keys())
+        
+        if 'errorTol' in allKeywordArgs:
+            errorTol=kwargs['errorTol']
+        else:
+            errorTol = 1e-4
+        
+        if 'verbose' in allKeywordArgs:
+            verbose=kwargs['verbose']
+        else:
+            verbose = True
+            
+        if 'maxFittingIterations' in allKeywordArgs:
+            maxFittingIterations=kwargs['maxFittingIterations']
+        else:
+            maxFittingIterations=400
+        
+        if 'penaltyParam' in allKeywordArgs:
+            penaltyParam = kwargs['penaltyParam']
+        else:
+            penaltyParam=1.0
+            
+        if 'L1Ratio' in allKeywordArgs:
+            L1Ratio = kwargs['L1Ratio']
+        else:
+            L1Ratio=0.5
+            
+            
+        previousArrayType = self.sampler.returnArrays
+        if self.sampler.returnArrays!='Sparse':
+            self.sampler.ChangeArrayType('Sparse')
+        sparseTrainingData=self.sampler.ReturnFullTrainingDataset(randomize=False)
+        sparseTestingData=self.sampler.ReturnFullTestingDataset(randomize=False)
+        
+        X_data_train = self.sampler.CollapseDataArrays(sparseTrainingData[0],sparseTrainingData[1],drop_column=True)
+        X_data_test = self.sampler.CollapseDataArrays(sparseTestingData[0],sparseTestingData[1],drop_column=True)
+        
+        diseasePrevalence = self.sampler.currentClinicalDataset.data['has_'+self.sampler.conditionSamplingOnDx[0]].sum()/self.sampler.currentClinicalDataset.numPatients
+        
+        linMod = LogisticRegression(penalty='elasticnet',tol=errorTol,verbose=verbose,fit_intercept=True,max_iter=maxFittingIterations,solver='saga',warm_start=True,l1_ratio=L1Ratio,C=penaltyParam)
+        linMod.intercept_ = np.array([np.log(diseasePrevalence)-np.log(1.0-diseasePrevalence)])
+        linMod.coef_ = np.zeros((1,self.model.numObsTraits+self.model.numCovParam))
+        linMod=linMod.fit(X_data_train,sparseTrainingData[2].toarray().ravel())
+        
+        pred_prob=linMod.predict_proba(X_data_test)
+        
+        if previousArrayType!='Sparse':
+            self.sampler.ChangeArrayType(previousArrayType)
+            
+        return {'Model':linMod,'Prediction Scores':pred_prob[:,1]}
+        
         
     def FitModel(self,batch_size=0,verbose=True,**kwargs):
         
@@ -376,7 +502,7 @@ class Classifier:
             assert set(OneCycleParams.keys())==set(['pctCycleIncrease','initLRDivisionFactor','finalLRDivisionFactor']),"One-cycle LR scheduler requires the following parameters:'pctCycleIncrease','initLRDivisionFactor','finalLRDivisionFactor'"
             
         else:
-            OneCycleParams={'pctCycleIncrease':0.1,'initLRDivisionFactor':100.0,'finalLRDivisionFactor':1e4}
+            OneCycleParams={'pctCycleIncrease':0.1,'initLRDivisionFactor':25.0,'finalLRDivisionFactor':1e4}
 
         
         pyro.clear_param_store()
@@ -420,19 +546,32 @@ class Classifier:
                 torch.save(model_dict,f)
         return model_dict
     
-    def PredictTestLabels(self):
-        previousArrayType = self.sampler.returnArrays
-        if self.sampler.returnArrays!='Torch':
-            self.sampler.ChangeArrayType('Torch')
-
-        testingData=self.sampler.ReturnFullTestingDataset(randomize=False)
-
-        test_pred= self.model.PredictLabels(testingData[0],testingData[1])
-
-        if previousArrayType!='Torch':
-            self.sampler.ChangeArrayType(previousArrayType)
-        return test_pred.detach().numpy()
-        
+    def PredictTestLabels(self,dataArrays=None):
+        if dataArrays is None:
+            previousArrayType = self.sampler.returnArrays
+            if self.sampler.returnArrays!='Torch':
+                self.sampler.ChangeArrayType('Torch')
+    
+            testingData=self.sampler.ReturnFullTestingDataset(randomize=False)
+    
+            test_pred= self.model.PredictLabels(testingData[0],testingData[1])
+    
+            if previousArrayType!='Torch':
+                self.sampler.ChangeArrayType(previousArrayType)
+            return test_pred.detach().numpy()
+        else:
+            incidence_array = dataArrays[0]
+            
+            if torch.is_tensor(incidence_array) is False:
+                incidence_array=sampler._torchWrapper(incidence_array)
+                
+            list_cov_arrays=[]
+            for x in dataArrays[1]:
+                if torch.is_tensor(x) is False:
+                    x=sampler._torchWrapper(x)
+                list_cov_arrays+=[x]
+            pred=self.model.PredictLabels(incidence_array,list_cov_arrays)
+            return pred.detach().numpy()
         
         
 
@@ -444,22 +583,22 @@ if __name__=='__main__':
     
     pyro.clear_param_store()
 
-    numSamples = 10000
+    numSamples = 100000
     numAssociatedTraits=20
     nLatentSimDim=4
     nLatentFitDim=4
-    simulateLabels=True
+    simulateLabels=False
     mappingFunction='Linear_Monotonic'
 
     numCovPerClass = [2,3,10]
     covNames = ['A','B','C']
-#    numCovPerClass = []
-#    covNames = []
+    numCovPerClass = []
+    covNames = []
 
-#
-#    simulator = ClinicalDataSimulator(numAssociatedTraits,nLatentSimDim,numCovPerClass,interceptPriors=[-3.0,1.5])
-#    simData=simulator.GenerateClinicalData(numSamples,0.001)
-#    labelData=simulator.GenerateLabelDx(simData['latent_phenotypes'])
+
+    simulator = ClinicalDataSimulator(numAssociatedTraits,nLatentSimDim,numCovPerClass,interceptPriors=[-3.0,1.5])
+    simData=simulator.GenerateClinicalData(numSamples)
+    labelData=simulator.GenerateTargetDx(simData['latent_phenotypes'])
 
     clinData = ClinicalDataset()
 
@@ -482,37 +621,48 @@ if __name__=='__main__':
         clinData.LoadFromArrays(simData['incidence_data'],simData['covariate_data'],covNames,catCovDicts=None, arrayType = 'Torch')
         sampler = ClinicalDatasetSampler(clinData,0.75,returnArrays='Torch')
 
-#    test_classifier=Classifier(sampler)
-#    output=test_classifier.FitModel(batch_size=1000,maxLearningRate=0.04,alreadyInitialized=False)
-#    test_pred = test_classifier.PredictTestLabels()
+
+    val_sampler = sampler.GenerateValidationSampler(0.2)
+    vlpi_model = vLPI(val_sampler,nLatentFitDim)
+    output=vlpi_model.FitModel(10000,finalErrorTol=1e-4)
+    
+    train_embed,test_embed=vlpi_model.ComputeEmbeddings(returnStdErrors=True)
+    
+    patient_index = np.concatenate((val_sampler.trainingDataIndex, val_sampler.testDataIndex))
+    embedding_means = np.vstack([train_embed[0],test_embed[0]])
+    embedding_stds = np.vstack([train_embed[1],test_embed[1]])
+    
+    
+    new_vlpi_model = vLPI(val_sampler,nLatentFitDim)
+    output=new_vlpi_model.FitModel(10000,scoreInitializationParameters=(patient_index,embedding_means,embedding_stds),finalErrorTol=1e-4,maxLearningRate=0.04,KLAnnealingParams={'initialTemp':1.0,'maxTemp':1.0,'fractionalDuration':0.25,'schedule': 'cosine'})
+    
+    
+    
+    
+    
+    
+    
+    
+#    training_classifier=Classifier(val_sampler,observedPhenotypeMap='Nonlinear')
+#    testing_classifer = Classifier(sampler,observedPhenotypeMap='Nonlinear')
+#    
+#    output_NN=training_classifier.FitModel(batch_size=5000,maxLearningRate=0.05)
+#    model = training_classifier.PackageModel()
+#    testing_classifer.LoadModel(model)
+#    
+#    output_eNet = testing_classifer.ElasticNet(penaltyParam=1.0)
+#    
+#    test_pred = testing_classifer.PredictTestLabels()
 #    pr = precision_recall_curve(labelData['label_dx_data'].numpy()[np.concatenate(sampler.testDataIndex)],test_pred)
 #    plt.step(pr[1],pr[0])
+#    pr = precision_recall_curve(labelData['label_dx_data'].numpy()[np.concatenate(sampler.testDataIndex)],output_eNet['Prediction Scores'])
+#    plt.step(pr[1],pr[0])
+#    plt.figure()
+#    plt.plot(test_pred,output_eNet['Prediction Scores'],'o')
+#    
 
-    test_vlpi=vLPI(sampler,nLatentFitDim,encoderNetworkHyperparameters={'n_layers' : 2, 'n_hidden' : 64, 'dropout_rate': 0.0, 'use_batch_norm':True})
-    output=test_vlpi.FitModel(batch_size=500,maxLearningRate=0.02,maxEpochs=400,alreadyInitialized=False,initErrorTol=1e-3,finalErrorTol=1e-5,KLAnnealingParams={'initialTemp':0.0,'maxTemp':1.0,'fractionalDuration':0.25,'schedule': 'cosine'})
-    nmf_train_scores, nmf_test_scores, nmf_components=test_vlpi.ComputeNMF_Embeddings(nLatentFitDim)
+    
 
-    model_train_scores,model_test_scores = test_vlpi.ComputeEmbeddings()
-    model_components = test_vlpi.ReturnComponents()
-
-    euclid_score = test_vlpi.ComputeOutlierScores()
-    perplex_train,perplex_test = test_vlpi.ComputePerplexity()
     
     
 
-    
-#    test_vlpi.PackageModel('/Users/davidblair/Desktop/tmp.pth')
-    
-#    pyro.clear_param_store()
-#    new_vlpi = vLPI(sampler,nLatentFitDim)
-#    new_vlpi.LoadModel('/Users/davidblair/Desktop/tmp.pth')
-##    
-#    output=new_vlpi.FitModel(batch_size=100,alreadyInitialized = True)
-    
-
-
-#    test_vlpi_4=vLPI(sampler,4,ModelParameters=modelParams,neuralNetworkHyperparameters={'n_layers' : 2, 'n_hidden' : 32, 'dropout_rate': 0.1, 'use_batch_norm':True})
-#    output_4=test_vlpi_4.FitModel(batch_size=1000,learningRate=0.05,initializationErrorTol=1e-2,withCosineAnnealing=False)
-#
-#    embed_4=test_vlpi_4.ComputeEmbeddings(nLatentFitDim)
-#

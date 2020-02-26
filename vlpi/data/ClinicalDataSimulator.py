@@ -15,15 +15,6 @@ from vlpi.utils.UtilityFunctions import random_catcov,infer_liability_CI
 class ClinicalDataSimulator:
 
 
-    def _sample_outliers(self,sample_size):
-
-        mean_vals =  dist.Normal(0.0,1.0).icdf(dist.Uniform(self.outlierPercentile,1.0).expand([sample_size,1]).sample())*self.labelDxMap
-        scale_vec=torch.ones((1,self.numLatentDimensions),dtype=torch.float32)
-        scale_vec[0,self.labelDxMap!=0.0]=self.outlierNoise
-        return dist.Normal(mean_vals,scale_vec).sample()
-
-
-
     def _generate_orthogonal_latent_pheno_params(self):
         effect_precisions=dist.Gamma(self.latentPhenotypeEffectsPrior[0],self.latentPhenotypeEffectsPrior[1]).expand([self.numLatentDimensions]).sample()
 
@@ -37,8 +28,26 @@ class ClinicalDataSimulator:
                 pheno_effects[i,component_assignments==i]=dist.Normal(0.0,1.0/torch.sqrt(effect_precisions[i])).expand([1,(component_assignments==i).sum()]).sample()
         return effect_precisions,pheno_effects
 
-
-
+    
+    def _generate_dense_latent_pheno_params(self):
+        effect_precisions=dist.Gamma(self.latentPhenotypeEffectsPrior[0],self.latentPhenotypeEffectsPrior[1]).expand([self.numLatentDimensions]).sample()
+        pheno_effects=torch.zeros((self.numLatentDimensions,self.numPhenotypes),dtype=torch.float32)
+        for i in range(self.numLatentDimensions):
+            if self.useMonotonic:
+                pheno_effects[i]=dist.Exponential(torch.sqrt(effect_precisions[i])).expand([1,self.numPhenotypes]).sample()
+            else:
+                pheno_effects[i]=dist.Normal(0.0,1.0/torch.sqrt(effect_precisions[i])).expand([1,self.numPhenotypes]).sample()
+        
+        return effect_precisions,pheno_effects
+    
+    
+    def _generate_sparse_latent_pheno_params(self,sparsity_rate):
+        effect_precisions,pheno_effects = self._generate_dense_latent_pheno_params()
+        mask = dist.Bernoulli(probs = torch.ones(pheno_effects.shape)*(1.0-sparsity_rate)).sample().to(torch.float)
+        return effect_precisions,pheno_effects*mask
+        
+        
+        
     def __init__(self,numPhenotypes,numLatentDimensions,numCatList=[],useMonotonic=True,**kwargs):
         allKeywordArgs = list(kwargs.keys())
         self.numPhenotypes=numPhenotypes
@@ -63,37 +72,48 @@ class ClinicalDataSimulator:
             self.interceptPriors=torch.tensor(kwargs['interceptPriors'],dtype=torch.float32)
 
 
-        if 'outlierPercentile' not in allKeywordArgs:
-            self.outlierPercentile=0.999
+        if 'numTargetDiseaseComponents' not in allKeywordArgs:
+            self.numTargetDiseaseComponents=np.random.randint(1,self.numLatentDimensions+1)
         else:
-            self.outlierPercentile=kwargs['outlierPercentile']
+            self.numTargetDiseaseComponents=kwargs['numTargetDiseaseComponents']
 
-        if 'outlierNoise' not in allKeywordArgs:
-            self.outlierNoise = 0.1
+
+
+        if 'targetDxNoisePrior' not in allKeywordArgs:
+            self.targetDxNoisePrior=torch.tensor([1.0,1.0],dtype=torch.float32)
         else:
-            self.outlierNoise=kwargs['outlierNoise']
+            self.targetDxNoisePrior=torch.tensor(kwargs['targetDxNoisePrior'],dtype=torch.float32)
 
-        if 'numMendelianComponents' not in allKeywordArgs:
-            self.numMendelianComponents=np.random.randint(1,self.numLatentDimensions+1)
+        if 'targetDxThresholdPrior' not in allKeywordArgs:
+
+            self.targetDxThresholdPrior=torch.tensor(infer_liability_CI([0.00001,0.01]),dtype=torch.float32)
         else:
-            self.numMendelianComponents=kwargs['numMendelianComponents']
-
-
-
-        if 'labelDxNoisePrior' not in allKeywordArgs:
-            self.labelDxNoisePrior=torch.tensor([1.0,1.0],dtype=torch.float32)
-        else:
-            self.labelDxNoisePrior=torch.tensor(kwargs['labelDxNoisePrior'],dtype=torch.float32)
-
-        if 'labelDxThresholdPrior' not in allKeywordArgs:
-
-            self.labelDxThresholdPrior=torch.tensor(infer_liability_CI([0.00001,0.01]),dtype=torch.float32)
-        else:
-            self.labelDxThresholdPrior=torch.tensor(infer_liability_CI(kwargs['labelDxThresholdPrior']),dtype=torch.float32)
+            self.targetDxThresholdPrior=torch.tensor(infer_liability_CI(kwargs['targetDxThresholdPrior']),dtype=torch.float32)
 
         #first construct the latent phenotype effects matrix
+        if 'sparsityRate' not in allKeywordArgs:
+            sparsityRate = 0.0
+        else:
+            sparsityRate=kwargs['sparsityRate']
+            assert sparsityRate>0.0 and sparsityRate <1.0,"Sparsity rate must lie within (0.0,1.0)"
+            
+        if 'orthogonalLatentPhenotypes' not in allKeywordArgs:
+            orthogonalLatentPhenotypes=False
+        else:
+            orthogonalLatentPhenotypes=kwargs['orthogonalLatentPhenotypes']
+            
+        
+        
+        
         if 'latentPhenotypeEffects' not in allKeywordArgs:
-            self.latentPhenotypeEffectsPrecision, self.latentPhenotypeEffects=self._generate_orthogonal_latent_pheno_params()
+            if sparsityRate > 0.0:
+                assert orthogonalLatentPhenotypes==False,"Cannot simultaneously use sparse and orthogonal latent phenotypes"
+                self.latentPhenotypeEffectsPrecision, self.latentPhenotypeEffects=self._generate_sparse_latent_pheno_params(sparsityRate)
+            elif orthogonalLatentPhenotypes==True:
+                self.latentPhenotypeEffectsPrecision, self.latentPhenotypeEffects=self._generate_orthogonal_latent_pheno_params()
+                
+            else:
+                    self.latentPhenotypeEffectsPrecision, self.latentPhenotypeEffects=self._generate_dense_latent_pheno_params()
         else:
             self.latentPhenotypeEffects=torch.tensor(kwargs['latentPhenotypeEffects'])
             assert self.latentPhenotypeEffects.shape[0]==self.numLatentDimensions, "Provided latentPhenotypeEffects matrix does not match numLatentDimensions"
@@ -102,12 +122,12 @@ class ClinicalDataSimulator:
 
 
 
-        self.labelDxNoise = dist.Gamma(self.labelDxNoisePrior[0],self.labelDxNoisePrior[1]).sample()
-        self.labelDxThreshold = dist.Normal(self.labelDxThresholdPrior[0],self.labelDxThresholdPrior[1]).sample()
+        self.targetDxNoise = dist.Gamma(self.targetDxNoisePrior[0],self.targetDxNoisePrior[1]).sample()
+        self.targetDxThreshold = dist.Normal(self.targetDxThresholdPrior[0],self.targetDxThresholdPrior[1]).sample()
 
-        associated_components = np.random.choice(np.arange(self.numLatentDimensions),size=self.numMendelianComponents,replace=False)
-        self.labelDxMap = torch.zeros((self.numLatentDimensions),dtype=torch.float32)
-        self.labelDxMap[associated_components]=torch.sqrt(dist.Dirichlet(torch.ones(self.numMendelianComponents)).sample())
+        associated_components = np.random.choice(np.arange(self.numLatentDimensions),size=self.numTargetDiseaseComponents,replace=False)
+        self.targetDxMap = torch.zeros((self.numLatentDimensions),dtype=torch.float32)
+        self.targetDxMap[associated_components]=torch.sqrt(dist.Dirichlet(torch.ones(self.numTargetDiseaseComponents)).sample())
 
 
         self.intercepts = dist.Normal(self.interceptPriors[0],self.interceptPriors[1]).expand([self.numPhenotypes]).sample()
@@ -115,21 +135,9 @@ class ClinicalDataSimulator:
         if sum(self.numCatList)>0:
             self.covEffects = pyro.sample("covEffects",dist.Normal(self.catCovEffectPriors[0],self.catCovEffectPriors[1]).expand([sum(numCatList),self.numPhenotypes]))
 
-    def GenerateClinicalData(self,numSamples,outlierFraction):
-        numIndependentSamples = int(np.floor(numSamples*(1.0-outlierFraction)))
-        numOutlierSamples = numSamples-numIndependentSamples
+    def GenerateClinicalData(self,numSamples):
 
-        latentPhenotypes_Independent = dist.Normal(0.0,1.0).expand([numIndependentSamples,self.numLatentDimensions]).sample()
-        latentPhenotypes_Outliers = self._sample_outliers(numOutlierSamples)
-
-        outlier_inds = torch.zeros((numIndependentSamples,1),dtype=torch.long)
-        outlier_inds=torch.cat((outlier_inds,torch.ones((numOutlierSamples,1),dtype=torch.long)))
-
-        new_order=torch.randperm(outlier_inds.shape[0])
-
-        latentPhenotypes = torch.cat((latentPhenotypes_Independent,latentPhenotypes_Outliers),dim=0)
-        latentPhenotypes=latentPhenotypes[new_order,:]
-        outlier_inds=outlier_inds[new_order,:]
+        latentPhenotypes= dist.Normal(0.0,1.0).expand([numSamples,self.numLatentDimensions]).sample()
 
         cat_cov_list = []
         if sum(self.numCatList)>0:
@@ -139,47 +147,35 @@ class ClinicalDataSimulator:
         obs_data = dist.Bernoulli(dist.Normal(0.0,1.0).cdf(mean_dx_rates)).sample()
         output={}
         output['latent_phenotypes'] = latentPhenotypes
-        output['is_outlier'] = outlier_inds
         output['incidence_data'] = obs_data
         output['covariate_data'] = cat_cov_list
         output['model_params'] = {}
         output['model_params']['intercepts']=self.intercepts
         output['model_params']['latentPhenotypeEffects']=self.latentPhenotypeEffects
-        output['model_params']['latentPhenotypeEffectsPrecision']=self.latentPhenotypeEffectsPrecision
 
         if sum(self.numCatList)>0:
              output['model_params']['covEffects']=self.covEffects
 
         return output
 
-    def GenerateLabelDx(self,latentPhenotypes):
+    def GenerateTargetDx(self,latentPhenotypes):
         assert torch.is_tensor(latentPhenotypes),"Input must be an array of tensors"
-        collapsedPheno = (latentPhenotypes*torch.sqrt(self.labelDxMap)).sum(dim=1,keepdim=True)
-        dx_prob = dist.Normal(0.0,1.0).cdf((collapsedPheno+self.labelDxThreshold)/self.labelDxNoise)
+        collapsedPheno = (latentPhenotypes*self.targetDxMap).sum(dim=1,keepdim=True)
+        dx_prob = dist.Normal(0.0,1.0).cdf((collapsedPheno+self.targetDxThreshold)/self.targetDxNoise)
         obs_data = dist.Bernoulli(dx_prob).sample()
         output={}
-        output['label_dx_data']=obs_data
+        output['target_dx_data']=obs_data
         output['model_params'] = {}
-        output['model_params']['labelDxMap']=self.labelDxMap
-        output['model_params']['labelDxThreshold']=self.labelDxThreshold
-        output['model_params']['labelDxNoise']=self.labelDxNoise
+        output['model_params']['targetDxMap']=self.targetDxMap
+        output['model_params']['targetDxThreshold']=self.targetDxThreshold
+        output['model_params']['targetDxNoise']=self.targetDxNoise
         return output
 
 
 if __name__=='__main__':
 
-    simulator = ClinicalDataSimulator(20,2)
-    simData=simulator.GenerateClinicalData(10000,0.01)
-    simLabels = simulator.GenerateLabelDx(simData['latent_phenotypes'])
+    simulator = ClinicalDataSimulator(20,2,sparsityRate=0.5)
+    simData=simulator.GenerateClinicalData(10000)
+    simLabels = simulator.GenerateTargetDx(simData['latent_phenotypes'])
 
-    centroid=simData['latent_phenotypes'].numpy().mean(axis=0)
-    true_euclid_dist = np.sqrt(np.sum((simData['latent_phenotypes'].numpy()-centroid)**2,axis=1,keepdims=True))
 
-    pred_disease_liability = np.sum(simLabels['model_params']['labelDxMap'].numpy()*simData['latent_phenotypes'].numpy(),axis=1,keepdims=True)
-
-#    plt.plot(true_euclid_dist[simData['is_outlier'].numpy()==1],pred_disease_liability[simData['is_outlier'].numpy()==1],'o')
-#    plt.plot(true_euclid_dist[simData['is_outlier'].numpy()==0],pred_disease_liability[simData['is_outlier'].numpy()==0],'o')
-##
-#
-    plt.plot(simData['latent_phenotypes'][simData['is_outlier'].flatten()==0,0].numpy(),simData['latent_phenotypes'][simData['is_outlier'].flatten()==0,1].numpy(),'o')
-    plt.plot(simData['latent_phenotypes'][simData['is_outlier'].flatten()==1,0].numpy(),simData['latent_phenotypes'][simData['is_outlier'].flatten()==1,1].numpy(),'o')
