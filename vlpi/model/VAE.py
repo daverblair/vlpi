@@ -116,11 +116,13 @@ class VAE(nn.Module):
         else:
             self.decoder = NonlinearMLPDecoder_Monotonic(self.nLatentDim,self.numCatList,self.numObsTraits,self.dropLinearCovariateColumn,**self.decoderHyperparameters)
         
+        
         if self.compute_device is not None:
             self.SwitchDevice(self.compute_device)
         self.eval()
         
-    def model(self, obs_data=None, cat_cov_list=None,label_dx=None,sample_scores=None,numSamples=None,minibatch_scale=1.0, annealing_factor=1.0):
+        
+    def model(self, obs_data=None, cat_cov_list=None,label_dx=None,encoded_data=None,numSamples=None,minibatch_scale=1.0, annealing_factor=1.0):
         if obs_data is not None:
             numSamples=obs_data.shape[0]
         else:
@@ -138,34 +140,30 @@ class VAE(nn.Module):
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("latent_pheno_plate",size=numSamples):
                 with pyro.poutine.scale(None, annealing_factor):
+                    
                     latentPhenotypes=pyro.sample("latentPhenotypes",dist.Normal(torch.zeros(1,self.nLatentDim,dtype=torch.float32,device=self.compute_device),torch.ones(1,self.nLatentDim,dtype=torch.float32,device=self.compute_device)).to_event(1))
-                
+                    
                 liability_vals = self.decoder.forward(latentPhenotypes,*cat_cov_list)
                 latent_dx_prob = self.linkFunction(liability_vals)
                 pyro.sample("obsTraitIncidence",dist.Bernoulli(latent_dx_prob).to_event(1),obs=obs_data)
 
 
-    def guide(self,obs_data=None, cat_cov_list=None,label_dx=None,sample_scores=None,numSamples = None,minibatch_scale=1.0,annealing_factor=1.0):
+    def guide(self,obs_data=None, cat_cov_list=None,label_dx=None,encoded_data=None,numSamples = None,minibatch_scale=1.0,annealing_factor=1.0):
         if obs_data is not None:
             numSamples=obs_data.shape[0]
-
         else:
             pass
 
-        if sample_scores is None:
-            pyro.module("encoder", self.encoder,update_module_params=False)
+        pyro.module("encoder", self.encoder,update_module_params=False)
 
 
         with pyro.poutine.scale(None,minibatch_scale):
             with pyro.plate("latent_pheno_plate",size=numSamples):
-                if sample_scores is None:
-                    z_mean,z_std = self.encoder(obs_data,*cat_cov_list)
-                else:
-                    z_mean,z_std = sample_scores[:,:,0],sample_scores[:,:,1]
+                z_mean,z_std = self.encoder(obs_data,*cat_cov_list)
                 with pyro.poutine.scale(None, annealing_factor):
                     pyro.sample("latentPhenotypes", dist.Normal(z_mean, z_std).to_event(1))
                 
-    
+
 
     def ComputeELBOPerDatum(self,obs_dis_array,cat_cov_list,num_particles=10):
         elboFunc = Trace_ELBO(num_particles=num_particles)

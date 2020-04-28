@@ -66,17 +66,21 @@ class ClinicalDataset:
 
     def __init__(self,ICDFilePaths:Iterable[str]=[]):
         """
-        Initialization for ClinicalDataset class. By default, class is initialized
-        with ICD9/ICD10 datasets provided with the package, 
-        although a user can provide their own ICD data files using ICDFilePaths, 
-        which expects a 2-element list of file paths [ICD_hierarchy, ICD_chapters].
-        Moreover, the class can be extensively manipulated such that arbitrary
-        combinations of ICD codes can be formed into a new diagnostic terminology.
-        In such cases, it is up to the user to maintain a database of mappings between
-        the new dx codes and the original ICD data structure.
         
-        ICDFilePaths-->2-element list [ICD_hierarchy, ICD_chapters] to indicate ICD code files, defualts to files shipped with package
+
+        Parameters
+        ----------
+        ICDFilePaths : Iterable[str], optional
+            This passes a list of strings ([ICD_hierarchy, ICD_chapters], see ICDUtilities) in order to initialize Dx Code data structure and mappings. This is only relevant when constructing new datasets from a flat text file. Otherwise, the Dx Code information is read from the stored ClinicalDataset Object, so the file paths are irrelevant. By default, the class instantiates the 2018 ICD10-CM coding structure, which is included with the software (as is the UKBB ICD10 encoding structure, downloaded in Jan 2020).
+            
+            The default is value [], which defaults to ICD10-CM 2018.
+
+        Returns
+        -------
+        None.
+
         """
+      
         
 
         if len(ICDFilePaths)==0:
@@ -242,10 +246,9 @@ class ClinicalDataset:
         Codes not in this dictionary are dropped.
         It reqirues the following argurments:
             oldCodeToNewMap-> key,value pairs indicating translation of old codes to new, can be one to many but expects iterable
-            newCodeToStringMap->key,value pairs indicating string values for new codes
         """
-        allNewCodes = set().union(*oldCodeToNewMap.values())
-        newCodeToIntMap = dict(zip(list(allNewCodes),range(len(allNewCodes))))
+        allNewCodes = sorted(list(set().union(*oldCodeToNewMap.values())))
+        newCodeToIntMap = dict(zip(allNewCodes,range(len(allNewCodes))))
         newIntToCodeMap = dict(zip(newCodeToIntMap.values(),newCodeToIntMap.keys()))
         
         def _convFunc(x):
@@ -492,6 +495,8 @@ class ClinicalDatasetSampler():
         else:
             self.isConditioned = False
         self.currentClinicalDataset=currentClinicalDataset
+        self._returnAuxData=False
+        self._auxDataset=None
         self.trainingFraction = trainingFraction
         self.fracWDx=0.0
         self.numTotalSamples = len(self.currentClinicalDataset.data)
@@ -508,8 +513,7 @@ class ClinicalDatasetSampler():
         else:
             self.arrayFunc=self._scipySparseWrapper
             
-        self._returnScores=False
-        self._scoreData=None
+        
             
 
         if shuffle==True:
@@ -613,6 +617,19 @@ class ClinicalDatasetSampler():
         self.isConditioned=True
         
     def SubsetCovariates(self,newCovList):
+        """
+        
+
+        Parameters
+        ----------
+        newCovList : List
+            List of covariates contained within ClinicalDataset that should be returned by the sampler. Can be empty list, which indicates that no covariates should be returned.
+
+        Returns
+        -------
+        None.
+
+        """
         assert set(newCovList).issubset(self.includedCovariates), "Subset of covariates provided is not subset  of current covariates."
         self.includedCovariates=newCovList
         
@@ -630,12 +647,14 @@ class ClinicalDatasetSampler():
         else:
             target_data = np.array(pd.concat([self.currentClinicalDataset.data.loc[newIndex]['has_'+dx] for dx in self.conditionSamplingOnDx],axis=1),dtype=np.float32)
             target_data=self.arrayFunc(target_data.reshape(incidenceData.shape[0],len(self.conditionSamplingOnDx)))
-        if not self._returnScores:
-            score_data = None
+        
+    
+        if not self._returnAuxData:
+            encoded_data = None
         else:
-            score_data = self.arrayFunc(np.concatenate(self._scoreData.loc[newIndex]['scores'].values))
+            encoded_data = self.arrayFunc(self._auxDataset.ReturnSparseDataMatrix(newIndex)) 
             
-        return incidenceData,covData,target_data,score_data
+        return incidenceData,covData,target_data,encoded_data
     
     def _generateRandomSample(self,numSamples,datasetIndex,fixedFracWDx):
         if fixedFracWDx!=None:
@@ -795,20 +814,16 @@ class ClinicalDatasetSampler():
         else:
             return torch.cat(list_of_arrays,dim=1,dtype=torch.float32)
         
-    def AddScoresToDataset(self,index,scoreMeans,scoreVariances):
-        assert len(scoreMeans.shape)==2 and len(scoreVariances.shape)==2,"Must provide mean and variance for every sample and every dimension"
+    def AddAuxillaryDataset(self,newClinicalDataset):
+        assert len(self.currentClinicalDataset.data.index.difference(newClinicalDataset.data.index))==0,"Auxillary ClinicalDataset must contain the same samples as the original ClinicalDataset"
+        self._returnAuxData=True
+        self._auxDataset=newClinicalDataset
         
+
         
-        self._returnScores=True
-        compact_scores = np.concatenate([scoreMeans[:,:,np.newaxis],scoreVariances[:,:,np.newaxis]],axis=-1)
-        
-        self._scoreData=pd.DataFrame({'patient_id':index,'scores':np.split(compact_scores,compact_scores.shape[0])})
-        self._scoreData.set_index('patient_id',drop=True,inplace=True)
-        
-        
-    def RemoveScoresFromDataset(self):
-        self._returnScores=False
-        self._scoreData=None
+    def RemoveAuxillaryDataset(self):
+        self._returnAuxData=False
+        self._auxDataset=None
            
 class _TorchDatasetWrapper(data.Dataset):
     

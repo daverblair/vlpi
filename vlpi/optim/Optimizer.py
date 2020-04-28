@@ -145,7 +145,7 @@ class Optimizer:
         
         
         if 'OneCycleParams' not in allKeywordArgs:
-            self.OneCycleParams={'pctCycleIncrease':0.3,'initLRDivisionFactor':10.0,'finalLRDivisionFactor':1e4}
+            self.OneCycleParams={'pctCycleIncrease':1.0,'initLRDivisionFactor':1.0,'finalLRDivisionFactor':1.0}
 
         else:
             self.OneCycleParams=kwargs['OneCycleParams']
@@ -234,7 +234,7 @@ class Optimizer:
         
         
         
-        assert optimizationStrategy in ['DummyEncoder','Full','EncoderOnly','DecoderOnly'],"Available Optimization strategies: ['DummyEncoder','Full','EncoderOnly','DecoderOnly']"
+        assert optimizationStrategy in ['Full','EncoderOnly','DecoderOnly'],"Available Optimization strategies: ['Full','EncoderOnly','DecoderOnly']"
         sviFunction = self._contstructSVI(optimizationStrategy,self.maxEpochs)
         annealer =AnnealingScheduler(self.KLAnnealingParams['initialTemp'],self.KLAnnealingParams['maxTemp'],int(self.maxEpochs*self.KLAnnealingParams['fractionalDuration']),self.KLAnnealingParams['schedule'])
         paramUpdateNum = 0
@@ -351,7 +351,7 @@ class Optimizer:
         
         
         
-        assert optimizationStrategy in ['DummyEncoder','Full','EncoderOnly','DecoderOnly'],"Available Optimization strategies: ['DummyEncoder','Full','EncoderOnly','DecoderOnly']"
+        assert optimizationStrategy in ['Full','EncoderOnly','DecoderOnly'],"Available Optimization strategies: ['Full','EncoderOnly','DecoderOnly']"
         sviFunction = self._contstructSVI(optimizationStrategy,len(torchTrainingData)*self.maxEpochs)
         annealer=AnnealingScheduler(self.KLAnnealingParams['initialTemp'],self.KLAnnealingParams['maxTemp'],int(len(torchTrainingData)*(self.maxEpochs*self.KLAnnealingParams['fractionalDuration'])),self.KLAnnealingParams['schedule'])
         paramUpdateNum=0

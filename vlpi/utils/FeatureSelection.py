@@ -34,7 +34,7 @@ class FeatureSelection:
         else:
             fdr=SelectFdr(f_regression, alpha=FDR)
         
-        fdr_fit = fdr.fit(dataMatrix,featureVector)
+        fdr_fit = fdr.fit(dataMatrix,featureVector.ravel())
         discIndx=np.where(fdr_fit.get_support()==True)[0]
             
         

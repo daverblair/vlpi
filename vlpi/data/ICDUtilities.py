@@ -9,6 +9,8 @@ Created on Tue Jul  9 08:42:18 2019
 from unidecode import unidecode
 import pkg_resources
 import string
+import pickle
+import pandas as pd
 
 ICD_PATH = pkg_resources.resource_filename('vlpi', 'data/ICDData/')
 
@@ -133,7 +135,7 @@ class ICDUtilities:
             
         
 
-    def __init__(self,hierarchyFile=None,chapterFile=None):
+    def __init__(self,useICD10UKBB=False,hierarchyFile=None,chapterFile=None):
         """
         Class that manipulates the ICD10 codebook. It stores the codebook as a
         simple tree (stored as a list called ICDCodes).
@@ -151,7 +153,10 @@ class ICDUtilities:
         
         """
         if hierarchyFile==None:
-            hierarchyFile=ICD_PATH+'icd10cm_order_2018.txt'
+            if useICD10UKBB:
+                hierarchyFile=ICD_PATH+'icd10_ukbb.txt'
+            else:
+                hierarchyFile=ICD_PATH+'icd10cm_order_2018.txt'
         if chapterFile==None:
             chapterFile = ICD_PATH+'ICD10_Chapters.txt'
         
@@ -217,3 +222,73 @@ class ICDUtilities:
                     self.setOfUnusableCodes.add(parsedLine[1])
                     currentUnusableCodeCount+=1
                     currentParentList+=[parsedLine[1]]
+                    
+                    
+class ICD10TranslationMap:
+    
+    def _buildTranslationTable(self):
+        
+        translation_table={'Primary Code':[],'Secondary Code(s)':[],'Relationship':[]}
+        for code in self.primaryEncoding.UsableICDCodes:
+            #first check if there is 1:1 mapping between codes
+            if code.code in self.secondaryEncoding.setOfUsableCodes:
+                translation_table['Primary Code']+=[code.code]
+                translation_table['Secondary Code(s)']+=[set([code.code])]
+                translation_table['Relationship']+=['Direct']
+            else:
+                parent = code.parent_code
+                if parent.code in self.secondaryEncoding.setOfUsableCodes:
+                    translation_table['Primary Code']+=[code.code]
+                    translation_table['Secondary Code(s)']+=[set([parent.code])]
+                    translation_table['Relationship']+=['Parent']
+                else:
+                    if len(code.child_codes)>0:
+                        child_code_names = [x.code for x in code.child_codes]
+                        allowed_child_codes = set(child_code_names).intersection(self.secondaryEncoding.setOfUsableCodes)
+                        if len(allowed_child_codes)>0:
+                            translation_table['Primary Code']+=[code.code]
+                            translation_table['Secondary Code(s)']+=[allowed_child_codes]
+                            translation_table['Relationship']+=['Child']
+                            
+        translation_table=pd.DataFrame(translation_table)
+        translation_table.set_index('Primary Code',drop=False,inplace=True)
+        return translation_table
+                        
+                
+    
+    def __init__(self,primaryEncoding=None,secondaryEncoding=None):
+        if (primaryEncoding is not None) or (secondaryEncoding is not None):
+            assert (secondaryEncoding is not None) and (secondaryEncoding is not None), "Must specify primary and secondary encoding if providing one or the other."
+            self.primaryEncoding=primaryEncoding
+            self.secondaryEncoding=secondaryEncoding
+            
+        if primaryEncoding is None:
+            try:
+                with open(ICD_PATH+'icd10cm_to_ukbb.pth','rb') as f:
+                    self.EncodingCoversionTable = pickle.load(f)
+            except FileNotFoundError:
+                self.primaryEncoding = ICDUtilities()
+                self.secondaryEncoding=ICDUtilities(useICD10UKBB=True)
+    
+                self.EncodingCoversionTable=self._buildTranslationTable()
+                self.EncodingCoversionTable.to_pickle(ICD_PATH+'icd10cm_to_ukbb.pth')
+        else:
+            self.EncodingCoversionTable=self._buildTranslationTable()
+            
+        
+        
+    def ReturnConversionSet(self,primaryCode,includeRelationship=False):
+        if includeRelationship:
+            look_up=['Secondary Code(s)','Relationship']
+        else:
+            look_up='Secondary Code(s)'
+        try:
+            return self.EncodingCoversionTable.loc[primaryCode][look_up]
+        except KeyError:
+            return set([])
+            
+
+if __name__=='__main__':
+    trans = ICD10TranslationMap()
+                
+        
