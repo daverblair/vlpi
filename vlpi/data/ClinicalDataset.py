@@ -21,10 +21,6 @@ from vlpi.utils.UtilityFunctions import one_hot_scipy,one_hot
 from vlpi.data.ICDUtilities import ICDUtilities
 
 class ClinicalDataset:
-    """
-    Constructs a clinical dataset by reading in text files (Tab-delimited)
-    and storing them as a Pandas dataset
-    """
 
     def none_to_int(self,val):
         if val!=None:
@@ -709,9 +705,6 @@ class ClinicalDatasetSampler():
 
 
     def _epoch(self,datasetIndex,batch_size):
-        """
-
-        """
 
         if self.isConditioned:
             #shuffle the order of the dataset at the start of every epoch
