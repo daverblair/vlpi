@@ -62,13 +62,13 @@ class ClinicalDataset:
 
     def __init__(self,ICDFilePaths:Iterable[str]=[]):
         """
-        
+
 
         Parameters
         ----------
         ICDFilePaths : Iterable[str], optional
             This passes a list of strings ([ICD_hierarchy, ICD_chapters], see ICDUtilities) in order to initialize Dx Code data structure and mappings. This is only relevant when constructing new datasets from a flat text file. Otherwise, the Dx Code information is read from the stored ClinicalDataset Object, so the file paths are irrelevant. By default, the class instantiates the 2018 ICD10-CM coding structure, which is included with the software (as is the UKBB ICD10 encoding structure, downloaded in Jan 2020).
-            
+
             The default is value [], which defaults to ICD10-CM 2018.
 
         Returns
@@ -76,8 +76,8 @@ class ClinicalDataset:
         None.
 
         """
-      
-        
+
+
 
         if len(ICDFilePaths)==0:
             self.ICDInfo=ICDUtilities()
@@ -85,8 +85,8 @@ class ClinicalDataset:
             assert len(ICDFilePaths)==2, "Expects a list containing 2 elecments: file paths for ICD10 hierarchy and chapters"
             self.ICDInfo=ICDUtilities(hierarchyFile=ICDFilePaths[0],chapterFile=ICDFilePaths[1])
 
-        #initialize the clinical data structure to line up with the ICD codebook, 
-        #although the clinical dataset need not correspond strictly to ICD codes (and this is frequently true) 
+        #initialize the clinical data structure to line up with the ICD codebook,
+        #although the clinical dataset need not correspond strictly to ICD codes (and this is frequently true)
         self.dxCodeToDataIndexMap = copy.deepcopy(self.ICDInfo.usableCodeToIndexMap)
         self.dataIndexToDxCodeMap = dict(zip(self.dxCodeToDataIndexMap.values(),self.dxCodeToDataIndexMap.keys()))
 
@@ -101,7 +101,7 @@ class ClinicalDataset:
 
         Expects that clinical dataset is in ICD format. Can transition to other formats (HPO)
         by using using ConvertCodes function.
-        
+
         clinicalDataset-->fileName for clinical dataset
         dxCodeColumn-->column that contains a comma-separated list of associated ICD codes, first column denoted by 0
         indexColumn-->column to use as index for the dataset
@@ -143,7 +143,7 @@ class ClinicalDataset:
 
         if len(currentDataList['patient_id'])>0:
             self.data=self.data.append(pd.DataFrame(currentDataList),ignore_index=True)
-            
+
         #shuffle data and create new index
         self.data = self.data.sample(frac=1).reset_index(drop=True)
         self.data.set_index('patient_id',drop=False, inplace=True)
@@ -193,7 +193,7 @@ class ClinicalDataset:
         """
         Converts set of ICD codes into a single dx code through logical-OR function.
         If given a single code, simply renames code as new_code.
-        
+
         dx_code_list-->List of codes to collapse
         new_string-->new string to name the dx
         new_code-->new code to correspond to the string. Will automatically be converted into an integer value
@@ -217,7 +217,7 @@ class ClinicalDataset:
                 oldToNewIntMap[self.dxCodeToDataIndexMap[key]]=i
                 self.dataIndexToDxCodeMap[i]=key
                 newCodeToIntMap[key] = i
-                
+
             self.dxCodeToDataIndexMap=newCodeToIntMap
             newInt = self.dxCodeToDataIndexMap[dx_code_list[0]]
             collapsedInt_to_Int = dict(zip(oldInts,[newInt for i in range(len(oldInts))]))
@@ -246,7 +246,7 @@ class ClinicalDataset:
         allNewCodes = sorted(list(set().union(*oldCodeToNewMap.values())))
         newCodeToIntMap = dict(zip(allNewCodes,range(len(allNewCodes))))
         newIntToCodeMap = dict(zip(newCodeToIntMap.values(),newCodeToIntMap.keys()))
-        
+
         def _convFunc(x):
             newDxSet=set([])
             for dx in x:
@@ -255,12 +255,12 @@ class ClinicalDataset:
                 except KeyError:
                     pass
             return list({newCodeToIntMap[x] for x in newDxSet})
-        
+
         self.data['dx_codes'] = self.data['dx_codes'].apply(_convFunc)
         self.dataIndexToDxCodeMap = newIntToCodeMap
         self.dxCodeToDataIndexMap = newCodeToIntMap
         self.numDxCodes=len(self.dxCodeToDataIndexMap)
-                    
+
     def ExcludeAll(self,dx_code_list):
         """
         Removes all codes in dx_code_list from the dataset
@@ -272,11 +272,11 @@ class ClinicalDataset:
     def ConditionOnDx(self,dx_code_list):
         """
         Conditions the data table on whether a patient has a particular or set of dx's
-        Accomplished by finding all patients with a each dx, 
+        Accomplished by finding all patients with a each dx,
         then adding a column (boolean) to the data table indicating this to be true.
         Completed by removing the conditioned codes from the data table.
         This function is expecially useful for supervised learning, as it allows
-        easy conditioned sampling from the data. 
+        easy conditioned sampling from the data.
         """
         for dx_code in dx_code_list:
             dx_code.replace('.','')
@@ -344,7 +344,7 @@ class ClinicalDataset:
     def LoadFromArrays(self,incidenceArray,covariateArrays,covariateNames,catCovDicts=None, arrayType = 'Numpy'):
         """
         Loads clinical dataset from array data, used for simulation purposes.
-        
+
         incidenceArray-->numSamples x numDx array of binary values indicating dx presence/abscence
         covariateArrays-->List of covariate vectors, each numSamples in length. Values can be arbitrary
         covariateNames-->names for the covariates contained within covariateArrays
@@ -383,7 +383,7 @@ class ClinicalDataset:
         self.data = self.data.sample(frac=1).reset_index(drop=True)
         self.data.set_index('patient_id',drop=False, inplace=True)
         self.numPatients = len(self.data)
-        
+
     def ReturnSparseDataMatrix(self,index:Iterable[int]=[]):
         """
         Returns disease incidence array as sparse coo matrix. Takes optional index, which returns
@@ -394,8 +394,8 @@ class ClinicalDataset:
         y_inds = list(itertools.chain.from_iterable(self.data.loc[index]['dx_codes']))
         x_inds = list(itertools.chain.from_iterable([[i]*len(x) for i,x in enumerate(self.data.loc[index]['dx_codes'])]))
         return sparse.coo_matrix((np.ones((len(x_inds))),(x_inds,y_inds)),shape=(len(index),self.numDxCodes),dtype=np.float32)
-      
-        
+
+
 
 
 class ClinicalDatasetSampler():
@@ -403,17 +403,17 @@ class ClinicalDatasetSampler():
     Generates random samples from a clinical dataset. Samples can be generated
     unconditionially, or conditional on a patient having a particular dx.
     Note, that in the latter case, the dx will be removed from the dataset and included as
-    a separate column in the data if not already done. 
+    a separate column in the data if not already done.
 
     """
-    
+
     def _numpyWrapper(self,x):
         if x.dtype == np.float32:
             if sparse.issparse(x):
                 return x.toarray()
             else:
                 return np.array(x,dtype=np.float32)
-            
+
         elif x.dtype == np.float64:
             if sparse.issparse(x):
                 return x.toarray()
@@ -424,14 +424,14 @@ class ClinicalDatasetSampler():
                 return x.toarray()
             else:
                 return np.array(x,dtype=np.int64)
-    
+
     def _scipySparseWrapper(self,x):
         if x.dtype == np.float32:
             if sparse.issparse(x):
                 return x.tocsr()
             else:
                 return sparse.csr_matrix(x,dtype=np.float32)
-            
+
         elif x.dtype==np.float64:
             if sparse.issparse(x):
                 return x.tocsr()
@@ -442,20 +442,20 @@ class ClinicalDatasetSampler():
                 return x.tocsr()
             else:
                 return sparse.csr_matrix(x,dtype=np.int64)
-        
+
     def _torchWrapper(self,x):
-        
+
         """
-        Note, all torch floating point tensors are converted to 32-bits to 
+        Note, all torch floating point tensors are converted to 32-bits to
         ensure GPU compatibility.
         """
-        
+
         if x.dtype==np.float32:
             if sparse.issparse(x):
                 return torch.tensor(x.toarray(),dtype = torch.float32)
             else:
                 return torch.tensor(x,dtype = torch.float32)
-            
+
         elif x.dtype==np.float64:
             if sparse.issparse(x):
                 return torch.tensor(x.toarray(),dtype = torch.float32)
@@ -467,22 +467,22 @@ class ClinicalDatasetSampler():
             else:
                 return torch.tensor(x,dtype = torch.long)
 
-        
+
 
     def __init__(self, currentClinicalDataset,trainingFraction,conditionSamplingOnDx:Iterable[str]=[],returnArrays='Numpy',shuffle=True):
         """
-        Initializes the clinical dataset sampler class, which uses a sparse representation of the 
-        underlying data matrix to draw samples quickly. 
-        
+        Initializes the clinical dataset sampler class, which uses a sparse representation of the
+        underlying data matrix to draw samples quickly.
+
         currentClinicalDataset-->instance of the class Clinical Dataset
         trainingFraction-->fraction of dataset used for training
         conditionSamplingOnDx-->allows sampling to be conditioned on a set of dx
-            such that at least one patient in every sample had at least one of the dx in the set. 
+            such that at least one patient in every sample had at least one of the dx in the set.
             Note: original dataset is modified.
         returnArrays-->array type returned by the sampling. Can be 'Numpy', 'Sparse' or 'Torch'
-            In the case of Sparse arrays, incidence arrays are returned as csr matrices, 1-d covariate vectors default to COO format. 
+            In the case of Sparse arrays, incidence arrays are returned as csr matrices, 1-d covariate vectors default to COO format.
         shuffle-->Indcates whether to shuffle the data prior to splitting into training and test sets
-            Defaults to True, only make False for very large datasets that have already been shuffled. 
+            Defaults to True, only make False for very large datasets that have already been shuffled.
 
         """
         self.conditionSamplingOnDx=conditionSamplingOnDx
@@ -497,8 +497,8 @@ class ClinicalDatasetSampler():
         self.fracWDx=0.0
         self.numTotalSamples = len(self.currentClinicalDataset.data)
         self.includedCovariates = self.currentClinicalDataset.catCovConversionDicts.keys()
-        
-        
+
+
         assert returnArrays in ['Numpy','Torch','Sparse'], "Only Numpy arrarys, Torch tensors, or Scipy.Sparse (csr) supported"
 
         self.returnArrays=returnArrays
@@ -508,9 +508,9 @@ class ClinicalDatasetSampler():
             self.arrayFunc=self._torchWrapper
         else:
             self.arrayFunc=self._scipySparseWrapper
-            
-        
-            
+
+
+
 
         if shuffle==True:
             self.currentClinicalDataset.data=self.currentClinicalDataset.data.sample(frac=1)
@@ -546,9 +546,9 @@ class ClinicalDatasetSampler():
             self.arrayFunc=self._torchWrapper
         else:
             self.arrayFunc=self._scipySparseWrapper
-            
-        
-        
+
+
+
     def WriteToDisk(self,fName):
         """
         Writes sampler to disk so that it can be re-instantiated for further use.
@@ -575,7 +575,7 @@ class ClinicalDatasetSampler():
         """
         if fName[-4:]!='.pth':
             fName+='.pth'
-        
+
         with open(fName, 'rb') as f:
             currentSampler = pickle.load(f)
         #assertions to make sure that sampler parameters  match up
@@ -600,8 +600,8 @@ class ClinicalDatasetSampler():
 
     def RevertToConditional(self):
         """
-        Reverts a previously conditional sampler back to conditinal sampling after becoming unconditional. 
-        Note, a sampler originally contstructed as unconditional cannot be made conditional, 
+        Reverts a previously conditional sampler back to conditinal sampling after becoming unconditional.
+        Note, a sampler originally contstructed as unconditional cannot be made conditional,
         as the make up of the testing and training datasets will not be correct.
         """
         assert len(self.conditionSamplingOnDx)!=0, "Sampler was not constructed as a conditional sampler. If you want a conditional sampler for this dataset, create a new ClincalDatasetSampler instance."
@@ -611,10 +611,10 @@ class ClinicalDatasetSampler():
         self.trainingDataIndex=[self.trainingDataIndex[has_at_least_one_dx_train],self.trainingDataIndex[np.invert(has_at_least_one_dx_train)]]
         self.testDataIndex=[self.testDataIndex[has_at_least_one_dx_test],self.testDataIndex[np.invert(has_at_least_one_dx_test)]]
         self.isConditioned=True
-        
+
     def SubsetCovariates(self,newCovList):
         """
-        
+
 
         Parameters
         ----------
@@ -628,30 +628,30 @@ class ClinicalDatasetSampler():
         """
         assert set(newCovList).issubset(self.includedCovariates), "Subset of covariates provided is not subset  of current covariates."
         self.includedCovariates=newCovList
-        
+
 
     def _returnData(self,newIndex,collapseAnchorDx=True):
         if isinstance(newIndex,Iterable)==False:
             newIndex=[newIndex]
-            
-        incidenceData = self.arrayFunc(self.currentClinicalDataset.ReturnSparseDataMatrix(newIndex)) 
+
+        incidenceData = self.arrayFunc(self.currentClinicalDataset.ReturnSparseDataMatrix(newIndex))
         covData = [self.currentClinicalDataset.data.loc[newIndex][s].values for s in self.includedCovariates]
         covData = [self.arrayFunc(x.reshape(incidenceData.shape[0],1)) for x in covData]
-        
+
         if not self.isConditioned:
             target_data = None
         else:
             target_data = np.array(pd.concat([self.currentClinicalDataset.data.loc[newIndex]['has_'+dx] for dx in self.conditionSamplingOnDx],axis=1),dtype=np.float32)
             target_data=self.arrayFunc(target_data.reshape(incidenceData.shape[0],len(self.conditionSamplingOnDx)))
-        
-    
+
+
         if not self._returnAuxData:
             encoded_data = None
         else:
-            encoded_data = self.arrayFunc(self._auxDataset.ReturnSparseDataMatrix(newIndex)) 
-            
+            encoded_data = self.arrayFunc(self._auxDataset.ReturnSparseDataMatrix(newIndex))
+
         return incidenceData,covData,target_data,encoded_data
-    
+
     def _generateRandomSample(self,numSamples,datasetIndex,fixedFracWDx):
         if fixedFracWDx!=None:
             assert isinstance(fixedFracWDx, float) and fixedFracWDx < 1.0 and fixedFracWDx > 0.0, "fixedFrac with dx must be float between 0.0 and 1.0"
@@ -664,13 +664,13 @@ class ClinicalDatasetSampler():
         elif self.isConditioned:
             numSamplesWDx=int(np.ceil(numSamples*self.fracWDx))
 
-        
+
         if not self.isConditioned:
             newIndex = np.random.choice(datasetIndex,size=numSamples,replace=False)
         else:
             newIndex = shuffle(np.concatenate((np.random.choice(datasetIndex[0],size=numSamplesWDx,replace=False),np.random.choice(datasetIndex[1],size=(numSamples-numSamplesWDx),replace=False))))
         return self._returnData(newIndex)
-        
+
 
     def GenerateRandomTrainingSample(self,numSamples, fixedFracWDx=None):
         return self._generateRandomSample(numSamples,self.trainingDataIndex,fixedFracWDx)
@@ -685,8 +685,8 @@ class ClinicalDatasetSampler():
         if randomize==True:
             datasetIndex=shuffle(datasetIndex)
 
-        return self._returnData(datasetIndex)      
-    
+        return self._returnData(datasetIndex)
+
 
     def ReturnFullTrainingDataset(self,randomize=True):
         return self._returnFullDataset(self.trainingDataIndex,randomize)
@@ -741,18 +741,18 @@ class ClinicalDatasetSampler():
         for batch in self._epoch(self.trainingDataIndex,batch_size):
             yield self._returnData(batch)
 
-            
+
     def TestingEpochGenerator(self,batch_size):
         for batch in self._epoch(self.testDataIndex,batch_size):
             yield self._returnData(batch)
-            
+
     def GenerateValidationSampler(self,validation_fraction):
         """
-        Returns a new ClinicalDatasetSampler that splits the training set 
+        Returns a new ClinicalDatasetSampler that splits the training set
         into training and validation sets. This new sampler can be used just like the original
         except that the test data is now the validation data. It accomplishes this task
         by making a general shallow copy of the class (to avoid copying, for example, the whole dataset)
-        while making deep copies of the information that changes between the 
+        while making deep copies of the information that changes between the
         validation and test classes.
         """
         new_instance = copy.copy(self)
@@ -760,7 +760,7 @@ class ClinicalDatasetSampler():
         new_instance.testDataIndex=copy.deepcopy(self.testDataIndex)
         new_instance.trainingFraction=copy.deepcopy(self.trainingFraction)
         new_instance.trainingFraction = 1.0-validation_fraction
-        
+
         if self.isConditioned==False:
             new_instance.numTotalSamples=len(self.trainingDataIndex)
             trainingDataIndexShuffled = shuffle(self.trainingDataIndex)
@@ -770,7 +770,7 @@ class ClinicalDatasetSampler():
         else:
             new_instance.numTotalSamples=len(self.trainingDataIndex[0])+len(self.trainingDataIndex[1])
             trainingDataIndexShuffled = np.append(*[shuffle(np.array(x)) for x in self.trainingDataIndex])
-            
+
             has_at_least_one_dx = np.array(np.sum(np.vstack([self.currentClinicalDataset.data.loc[trainingDataIndexShuffled]['has_'+dx] for dx in self.conditionSamplingOnDx]),axis=0),dtype=np.bool)
             dataWithDx = self.currentClinicalDataset.data.loc[trainingDataIndexShuffled].index[has_at_least_one_dx>0]
             dataWithoutDx = self.currentClinicalDataset.data.loc[trainingDataIndexShuffled].index[has_at_least_one_dx==0]
@@ -781,56 +781,56 @@ class ClinicalDatasetSampler():
             new_instance.trainingDataIndex=[dataWithDx[0:cutOffValWDx],dataWithoutDx[0:cutOffValWoDx]]
             new_instance.testDataIndex=[dataWithDx[cutOffValWDx:],dataWithoutDx[cutOffValWoDx:]]
         return new_instance
-    
+
     def CollapseDataArrays(self,disInds=None,cov_vecs=None,drop_column=False):
         list_of_arrays=[]
         if disInds is not None:
             list_of_arrays+=[disInds]
-        
-        
+
+
         if cov_vecs is not None:
             n_cat_vec = [len(self.currentClinicalDataset.catCovConversionDicts[x]) for x in self.includedCovariates]
-            
+
             for i,n_cat in enumerate(n_cat_vec):
                 if torch.is_tensor(cov_vecs[0]):
                     list_of_arrays+=[one_hot(cov_vecs[i],n_cat,dropColumn=drop_column)]
                 else:
                     list_of_arrays+=[one_hot_scipy(cov_vecs[i],n_cat,dropColumn=drop_column)]
-        
-        
-        list_of_arrays=[self.arrayFunc(x.toarray()) for x in list_of_arrays]
-        
+
+
+        list_of_arrays=[self.arrayFunc(x) for x in list_of_arrays]
+
         if self.returnArrays=='Numpy':
             return np.hstack(list_of_arrays,dtype=np.float64)
         elif self.returnArrays=='Sparse':
             return sparse.hstack(list_of_arrays,format='csr',dtype=np.float64)
         else:
             return torch.cat(list_of_arrays,dim=1,dtype=torch.float32)
-        
+
     def AddAuxillaryDataset(self,newClinicalDataset):
         assert len(self.currentClinicalDataset.data.index.difference(newClinicalDataset.data.index))==0,"Auxillary ClinicalDataset must contain the same samples as the original ClinicalDataset"
         self._returnAuxData=True
         self._auxDataset=newClinicalDataset
-        
 
-        
+
+
     def RemoveAuxillaryDataset(self):
         self._returnAuxData=False
         self._auxDataset=None
-           
+
 class _TorchDatasetWrapper(data.Dataset):
-    
+
     def __init__(self,clinicalDatasetSampler,sampling_index,batch_size):
         """
-        Wrapper for ClinicalData and ClinicalDatasetSampler to allow for 
+        Wrapper for ClinicalData and ClinicalDatasetSampler to allow for
         rapid subset sampling using DataLoader, which allows for multi-thread
         loading/queueing of data.
         """
-        
+
         self.clinicalDatasetSampler = clinicalDatasetSampler
         self.sampling_index=sampling_index
-        
-        
+
+
         if self.clinicalDatasetSampler.isConditioned:
             #shuffle the order of the dataset at the start of every epoch
             self.sampling_index[0]=shuffle(self.sampling_index[0])
@@ -843,34 +843,33 @@ class _TorchDatasetWrapper(data.Dataset):
             self.noDxSplits=self.clinicalDatasetSampler._indexSplit(len(self.sampling_index[1]),self.totalNumBatches)
             if self.totalNumBatches == 0:
                 self.totalNumBatches+=1
-                
+
         else:
             self.sampling_index=shuffle(self.sampling_index)
             self.totalNumBatches,leftover = divmod(len(self.sampling_index),batch_size)
             self.splits = self.clinicalDatasetSampler._indexSplit(len(self.sampling_index),self.totalNumBatches)
             if self.totalNumBatches == 0:
                 self.totalNumBatches+=1
-        
+
     def __len__(self):
         return self.totalNumBatches
-    
+
     def shuffle_index(self):
         if self.clinicalDatasetSampler.isConditioned:
             self.sampling_index[0]=shuffle(self.sampling_index[0])
             self.sampling_index[1]=shuffle(self.sampling_index[1])
         else:
             self.sampling_index=shuffle(self.sampling_index)
-            
-        
-        
+
+
+
     def __getitem__(self,index):
         if self.clinicalDatasetSampler.isConditioned:
             hasDxSubset = self.sampling_index[0][self.hasDxSplits[index]:self.hasDxSplits[index+1]]
             noDxSubset =  self.sampling_index[1][self.noDxSplits[index]:self.noDxSplits[index+1]]
             batchIndex = np.concatenate((hasDxSubset,noDxSubset))
-        
+
         else:
             batchIndex=self.sampling_index[self.splits[index]:self.splits[index+1]]
-        
+
         return self.clinicalDatasetSampler._returnData(batchIndex)
-    

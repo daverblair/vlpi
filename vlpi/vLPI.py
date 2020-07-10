@@ -76,52 +76,52 @@ class vLPI:
             Size of dataset batches for inference. The default is 1000 patients. Specifying 0 utilizes the full dataset for each optimization step, which is not typically advised due to the approximate nature of the gradient.
         verbose : bool, optional
             Indicates whether or not to print (to std out) the loss function values and error after every epoch. The default is True.
-                
-                
+
+
         Keyword Parameters
         ----------
         maxLearningRate: float, optional
             Specifies the maximum learning rate used during inference. Default is 0.04
-            
+
         errorTol: float, optional
             Error tolerance in ELBO (computed on held out validation data) to determine convergence. Default is 1e-4.
-            
+
         numParticles: int, optional
-            Number of particles (ie random samples) used to approximate gradient. Default is 1. Computational cost increases linearly with value. 
-            
+            Number of particles (ie random samples) used to approximate gradient. Default is 1. Computational cost increases linearly with value.
+
         maxEpochs: int, optional
             Maximum number of epochs (passes through training data) for inference. Note, because annealing and learning rate updates depend on maxEpochs, this offers a simple way to adjust the speed at which these values change.
-            
+
         computeDevice: int or None, optional
             Specifies compute device for inference. Default is None, which instructs algorithm to use cpu. If integer is provided, then algorithm will be assigned to that integer valued gpu
-        
+
         numDataLoaders: int
-            Specifies the number of threads used to process data and prepare for upload into the gpu. Note, due to the speed of gpu, inference can become limited by data transfer speed, hence the use of multiple DataLoaders to improve this bottleneck. Default is 0, meaning just the dedicated cpu performs data transfer. 
-            
+            Specifies the number of threads used to process data and prepare for upload into the gpu. Note, due to the speed of gpu, inference can become limited by data transfer speed, hence the use of multiple DataLoaders to improve this bottleneck. Default is 0, meaning just the dedicated cpu performs data transfer.
+
         OneCycleParams: dict with keys 'pctCycleIncrease','initLRDivisionFactor','finalLRDivisionFactor'
-            Parameters specifying the One-Cycle learning rate adjustment strategy, which helps to enable good anytime performance.   
+            Parameters specifying the One-Cycle learning rate adjustment strategy, which helps to enable good anytime performance.
             pctCycleIncrease--fraction of inference epochs used for increasing learning rate. Default: 0.1
             initLRDivisionFactor--initial learning rate acheived by dividing maxLearningRate by this value. Default: 25.0
             finalLRDivisionFactor--final learning rate acheived by dividing maxLearningRate by this value. Default: 1e4
-            
-        
+
+
         KLAnnealingParams: dict with keys 'initialTemp','maxTemp','fractionalDuration','schedule'
-            Parameters that define KL-Annealing strategy used during inference, important for avoiding local optima. Note, annealing is only used during computation of ELBO and gradients on training data. Test data ELBO evaluation, used to monitor convergence, is performed at the maximum desired temperature (typically 1.0, equivalent to standard variational inference). Therefore, it is possible for the model to converge even when the temperature hasn't reached it's final value. Although it's possible that further cooling would find a better optimum, this is highly unlikely in practice. 
+            Parameters that define KL-Annealing strategy used during inference, important for avoiding local optima. Note, annealing is only used during computation of ELBO and gradients on training data. Test data ELBO evaluation, used to monitor convergence, is performed at the maximum desired temperature (typically 1.0, equivalent to standard variational inference). Therefore, it is possible for the model to converge even when the temperature hasn't reached it's final value. Although it's possible that further cooling would find a better optimum, this is highly unlikely in practice.
             initialTemp--initial temperature during inference. Default: 0.0
             maxTemp--final temperature obtained during inference. Default: 1.0 (standard variational inference)
             fractionalDuration--fraction of inference epochs used for annealing. Default is 0.25
             schedule--function used to change temperature during inference. Defualt is 'cosine'. Options: 'cosine','linear'
-            
+
         'OpimizationStrategy': str, optional
             Specifies a strategry for optimization. Options include: 'Full','DecoderOnly','EncoderOnly'. Useful for debugging. Default is 'Full'
 
-            
+
         Returns
         -------
         output : list
             List containing the following information: [loss function value of best model (computed on validation data),sequence of training loss values, sequence of validation loss values, error estimates across iterations (computed on validation data)].
-            
-            
+
+
 
         """
 
@@ -263,12 +263,12 @@ class vLPI:
             incidence_array = dataArrays[0]
 
             if torch.is_tensor(incidence_array) is False:
-                incidence_array=sampler._torchWrapper(incidence_array)
+                incidence_array=self.sampler._torchWrapper(incidence_array)
 
             list_cov_arrays=[]
             for x in dataArrays[1]:
                 if torch.is_tensor(x) is False:
-                    x=sampler._torchWrapper(x)
+                    x=self.sampler._torchWrapper(x)
                 list_cov_arrays+=[x]
 
             embeddings=self.model.PredictLatentPhenotypes(incidence_array, list_cov_arrays,returnScale=returnStdErrors)
@@ -282,8 +282,8 @@ class vLPI:
 
     def ReturnComponents(self):
         """
-        Returns the matrix of parameters defining f(Z), the function mapping the latent phenotypic space to the observed symptom risk values (sometimes called 'loadings' in factor analysis. 
-        This function is only available for linear f(Z). 
+        Returns the matrix of parameters defining f(Z), the function mapping the latent phenotypic space to the observed symptom risk values (sometimes called 'loadings' in factor analysis.
+        This function is only available for linear f(Z).
 
         Returns
         -------
@@ -304,7 +304,7 @@ class vLPI:
 
     def ComputePerplexity(self,dataArrays=None, randomize=False):
         """
-        Computes the per-datum perplexity (-1.0*ELBO) of the training/test data or the provided dataArrays. 
+        Computes the per-datum perplexity (-1.0*ELBO) of the training/test data or the provided dataArrays.
         Can be thought of as a type of reconstruction error (sometimes also referred to as data "surprisal")
 
         Parameters
@@ -342,17 +342,17 @@ class vLPI:
             incidence_array = dataArrays[0]
 
             if torch.is_tensor(incidence_array) is False:
-                incidence_array=sampler._torchWrapper(incidence_array)
+                incidence_array=self.sampler._torchWrapper(incidence_array)
 
             list_cov_arrays=[]
             for x in dataArrays[1]:
                 if torch.is_tensor(x) is False:
-                    x=sampler._torchWrapper(x)
+                    x=self.sampler._torchWrapper(x)
                 list_cov_arrays+=[x]
             elbo=self.model.ComputeELBOPerDatum(incidence_array, list_cov_arrays)
             return -1.0*elbo.detach().numpy()
 
-        
+
     def _readModelFromFile(self,fName):
         with open(fName,'rb') as f:
             model_dict = torch.load(f,map_location='cpu')
@@ -386,12 +386,12 @@ class vLPI:
 
     def PackageModel(self,fName=None):
         """
-        Packages the current model and returns it as a python dictionary. If 
+        Packages the current model and returns it as a python dictionary. If
 
         Parameters
         ----------
         fName : str, default None
-            File path to save model to disk. The default is None, which means that only a model dictionary will be returned. 
+            File path to save model to disk. The default is None, which means that only a model dictionary will be returned.
 
         Returns
         -------
@@ -410,78 +410,3 @@ class vLPI:
             with open(fName,'wb') as f:
                 torch.save(model_dict,f)
         return model_dict
-
-
-if __name__=='__main__':
-
-    from vlpi.data.ClinicalDataSimulator import ClinicalDataSimulator
-
-    pyro.clear_param_store()
-
-    numSamples = 100000
-    numAssociatedTraits=20
-    nLatentSimDim=2
-    nLatentFitDim=10
-
-    # numCovPerClass = [2,3,10]
-    # covNames = ['A','B','C']
-    numCovPerClass = []
-    covNames = []
-
-
-    simulator = ClinicalDataSimulator(20,nLatentSimDim,0.0001,isOutlier=True,interceptPriors=[-3.0,2.0])
-    simData=simulator.GenerateClinicalData(numSamples)
-    # labelData=simulator.GenerateTargetDx(simData['latent_phenotypes'])
-
-    clinData = ClinicalDataset()
-    disList =list(clinData.dxCodeToDataIndexMap.keys())[0:numAssociatedTraits]
-
-    clinData.IncludeOnly(disList)
-    clinData.LoadFromArrays(simData['incidence_data'],simData['covariate_data'],covNames,catCovDicts=None, arrayType = 'Torch')
-    sampler = ClinicalDatasetSampler(clinData,0.75,returnArrays='Torch')
-
-
-    # np.random.shuffle(tmp_index)
-    # disList = possible_dis_list[tmp_index[0:numAssociatedTraits]]
-
-
-
-    val_sampler = sampler.GenerateValidationSampler(0.2)
-    vlpi_model = vLPI(val_sampler,nLatentFitDim)
-    output=vlpi_model.FitModel(1000,errorTol=1e-4,max_epochs=500)
-
-
-
-
-    # mean_2,scale_2=translation_encoder_2(data[3],data[1])
-
-    # # new_vlpi_model = vLPI(val_sampler,nLatentFitDim)
-    # # output=new_vlpi_model.FitModel(1000,scoreInitializationParameters=(patient_index,embedding_means,embedding_stds),errorTol=1e-4,maxLearningRate=0.04,maxEpochs=2000,KLAnnealingParams={'initialTemp':1.0,'maxTemp':1.0,'fractionalDuration':0.25,'schedule': 'cosine'})
-
-    # new_train_embed,new_test_embed=new_vlpi_model.ComputeEmbeddings(dataArrays=val_sampler.ReturnFullTrainingDataset(randomize=False),returnStdErrors=True)
-
-
-
-
-
-
-
-
-
-#    training_classifier=Classifier(val_sampler,observedPhenotypeMap='Nonlinear')
-#    testing_classifer = Classifier(sampler,observedPhenotypeMap='Nonlinear')
-#
-#    output_NN=training_classifier.FitModel(batch_size=5000,maxLearningRate=0.05)
-#    model = training_classifier.PackageModel()
-#    testing_classifer.LoadModel(model)
-#
-#    output_eNet = testing_classifer.ElasticNet(penaltyParam=1.0)
-#
-#    test_pred = testing_classifer.PredictTestLabels()
-#    pr = precision_recall_curve(labelData['label_dx_data'].numpy()[np.concatenate(sampler.testDataIndex)],test_pred)
-#    plt.step(pr[1],pr[0])
-#    pr = precision_recall_curve(labelData['label_dx_data'].numpy()[np.concatenate(sampler.testDataIndex)],output_eNet['Prediction Scores'])
-#    plt.step(pr[1],pr[0])
-#    plt.figure()
-#    plt.plot(test_pred,output_eNet['Prediction Scores'],'o')
-#

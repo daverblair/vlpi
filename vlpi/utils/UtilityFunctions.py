@@ -51,22 +51,17 @@ def one_hot(index, n_cat, dropColumn=False):
         return onehot.type(torch.float32)[:,1:]
     else:
         return onehot.type(torch.float32)
-    
+
 def one_hot_scipy(index,n_cat,dropColumn=False):
     if sparse.issparse(index):
         index = index.toarray().ravel()
-        returnSparse=True
     else:
         index=np.array(index).ravel()
-        returnSparse=False
     one_hot = sparse.coo_matrix((np.ones(index.shape[0]),(np.arange(index.shape[0]),index)),shape = (index.shape[0],n_cat),dtype=np.float64)
     one_hot = one_hot.tocsr()
     if dropColumn:
         one_hot = one_hot[:,1:]
-    if returnSparse:
-        return one_hot
-    else:
-        return one_hot.toarray()
+    return one_hot
 
 def file_len(fname,skip_rows):
     p = subprocess.Popen(['wc', '-l', fname], stdout=subprocess.PIPE,
@@ -86,7 +81,7 @@ def _liability_CI_zero_func(params, CIvals,CIlevel):
     p = (1.0-CIlevel)/2.0
     cDist = norm(params[0],params[1])
     return (norm(0.0,1.0).cdf(cDist.ppf(p))-CIvals[0],norm(0.0,1.0).cdf(cDist.ppf(CIlevel+p))-CIvals[1])
-        
+
 
 def infer_liability_CI(CI95):
     initParam = np.zeros(2)
@@ -98,7 +93,7 @@ def infer_liability_CI(CI95):
 
 
 def rel_diff(curr,prev):
-    return abs((curr - prev) / prev)    
+    return abs((curr - prev) / prev)
 
 
 def fisher_exact(dataMatrix,incidenceVec):
@@ -133,10 +128,10 @@ def T_test(dataMatrix,scoreVec):
     for feature_i in range(dataMatrix.shape[1]):
         where_nonzero=dataMatrix[:,feature_i].nonzero()[0]
         where_zero = np.setdiff1d(np.arange(dataMatrix.shape[0]),where_nonzero)
-    
+
         pop_a = scoreVec[where_nonzero]
         pop_b = scoreVec[where_zero]
-    
+
         stats = ttest_ind(pop_a, pop_b,equal_var=False)
         scores[feature_i]=stats[0]
         pvals[feature_i]=stats[1]

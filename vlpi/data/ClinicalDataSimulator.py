@@ -99,7 +99,7 @@ class ClinicalDataSimulator:
 
 
         if 'interceptPriors' not in allKeywordArgs:
-            self.interceptPriors=torch.tensor([-2.5,1.0],dtype=torch.float32)
+            self.interceptPriors=torch.tensor([-3.0,2.0],dtype=torch.float32)
         else:
             self.interceptPriors=torch.tensor(kwargs['interceptPriors'],dtype=torch.float32)
             
