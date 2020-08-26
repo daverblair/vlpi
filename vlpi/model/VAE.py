@@ -182,12 +182,6 @@ class VAE(nn.Module):
         else:
             return z_mean
 
-    def ComputeKLDivergenceFromPrior(self,obs_dis_array,cat_cov_list,returnScale=False,num_particles=10):
-
-        distParams = self.PredictLatentPhenotype(obs_dis_array,cat_cov_list,returnScale=True,num_particles=num_particles)
-        return 0.5*torch.sum((distParams[0]**2)+(distParams[1]**2)-2.0*torch.log(distParams[1])-1.0,dim=1,keepdim=True)
-
-
 
     def PackageCurrentState(self):
         packaged_model_state={}

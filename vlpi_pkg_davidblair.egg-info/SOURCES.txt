@@ -10,6 +10,7 @@ vlpi/model/Classifier.py
 vlpi/model/Decoders.py
 vlpi/model/Encoders.py
 vlpi/model/FCLayers.py
+vlpi/model/TranslationEncoder.py
 vlpi/model/VAE.py
 vlpi/model/__init__.py
 vlpi/optim/Optimizer.py
