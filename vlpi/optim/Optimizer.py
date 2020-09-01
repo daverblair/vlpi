@@ -29,6 +29,26 @@ class AnnealingScheduler:
         return (self.finalTemp - self.initTemp) * currentStepFrac + self.initTemp
 
     def __init__(self,initTemp,finalTemp,totalNumSteps,scheduleType):
+        """
+        Scheduler for KL-Anneling.
+
+        Parameters
+        ----------
+        initTemp : float
+            Initial temperature.
+        finalTemp : float
+            Final temperature.
+        totalNumSteps : int
+            Number of total steps for annealing
+        scheduleType : str
+            Type of scheduler. Must be 'linear' or 'cosine'.
+
+        Returns
+        -------
+        None
+
+        """
+
         assert initTemp>=0.0 and finalTemp >=0.0,"Annealing temperatures must be greater than 0.0"
         self.initTemp=initTemp
         self.finalTemp=finalTemp
@@ -96,24 +116,38 @@ class Optimizer:
 
 
 
+
     def __init__(self,phenotypeModel,datasetSampler,optimizationParameters={'maxLearningRate': 0.05,'maxEpochs': 5000,'numParticles':10},computeConfiguration={'device':None,'numDataLoaders':0}, **kwargs):
         """
-        This class implements two SGD optimizers, one of which uses the full training
-        dataset (FullDatasetTrain) and the other uses mini-batches randomly sampled
-        from the training dataset. To improve convergence rate and escape local minima,
-        learning rate can be autommatically altered during inference using
 
-        Note, given stochastic inference strategy coupled with possible re-starts,
-        class tracks model perfomance and stores the best possible instance of the model
-        obtained throughout the inference process. This also helps to avoid overfitting.
+        This class implements two SGD optimizers, one of which uses the full training dataset (FullDatasetTrain) and the other uses mini-batches randomly sampled from the training dataset. To improve convergence rate and escape local minima, learning rate can be autommatically altered during inference. Note, given stochastic inference strategy coupled with possible re-starts, class tracks model perfomance and stores the best possible instance of the model obtained throughout the inference process. This also helps to avoid overfitting.
 
-        phenotypeModel-->The phenotype model to optimize
-        datasetSampler-->ClinicalDatasetSampler that holds clinical data and generates random samples
+                phenotypeModel-->The phenotype model to optimize
+                datasetSampler-->ClinicalDatasetSampler that holds clinical data and generates random samples
 
-        maxLearningRate-->maximum learning rate used by SGD during inference.
-        device-->compute device to use. By default, uses CPU unless GPU device specified, which can be string or integer
+                maxLearningRate-->maximum learning rate used by SGD during inference.
+                device-->compute device to use. By default, uses CPU unless GPU device specified, which can be string or integer
+
+        Parameters
+        ----------
+        phenotypeModel : vlpi.model.VAE
+            The phenotype model to optimize.
+        datasetSampler : vlpi.data.ClinicalDatasetSampler
+            ClinicalDatasetSampler that generates data
+        optimizationParameters : dict
+            Dictionary containing optimzation parameters. Default: {'maxLearningRate': 0.05,'maxEpochs': 5000,'numParticles':10}
+        computeConfiguration : dict
+            Dictionary containing the compute configuration (device and number of dataloaders. Defaults to using cpu: {'device':None,'numDataLoaders':0}
+        **kwargs : See source code.
+            These arguments adjust the parameters of the One-Cycle learning rate policy ('OneCycleParams'), Adam weight decay parameter ('AdamW_Weight_Decay'), and the KL-Annealing scheduler ('KLAnnealingParams'). See source code for details.
+
+        Returns
+        -------
+        None
 
         """
+
+
 
         allKeywordArgs = list(kwargs.keys())
 
@@ -197,14 +231,31 @@ class Optimizer:
         return {'svi':SVI(_model,_guide,scheduler, loss=Trace_ELBO(num_particles=self.numParticles)),'scheduler':scheduler}
 
 
-    def FullDatasetTrain(self, errorTol:float = 1e-5,verbose:bool=True,logFile=None,optimizationStrategy='Full',errorComputationWindow=None):
+    def FullDatasetTrain(self, errorTol:float = 1e-3,verbose:bool=True,logFile=None,optimizationStrategy='Full',errorComputationWindow=None):
         """
-        maxEpochs-->maximum number of training epochs.
-        errorTol--> when error in avg testing ELBO < errorTol, optimization stops.
-        verbose--> if True, prints out training ELBO, test ELBO, and error at the
-        end of every slidingErrorWindow
-        logFile-->prints out training information to logFile
+
+        Trains the VAE model using the full dataset. Not recommended.
+
+        Parameters
+        ----------
+        errorTol : float
+            Error tolerance in validation data ELBO for convergence.
+        verbose : bool
+            Whether to print updates regarding fitting.
+        logFile : str
+            Path to logfile which can store progress
+        optimizationStrategy : str
+            Allows user to update only certain parts of model. Useful for debugging. Must be one of: 'Full','EncoderOnly','DecoderOnly'
+        errorComputationWindow : float
+            Sliding window for computing error tolerance. Default appears to work well.
+
+        Returns
+        -------
+        tuple
+            (bestModelScore, vector of ELBO evaluations on training data,vector of ELBO evaluations on testing data, vector of all errors computed during fitting)
+
         """
+
         if errorComputationWindow is None:
             errorComputationWindow = max(int(0.1*self.maxEpochs),2)
         else:
@@ -310,10 +361,29 @@ class Optimizer:
 
     def BatchTrain(self,batch_size:int,errorTol:float = 1e-3,verbose=True,logFile=None,optimizationStrategy='Full',errorComputationWindow=None):
         """
-        maxEpochs-->maximum number of training epochs.
-        errorTol--> when error in avg testg ELBO < errorTol, optimization stops.
-        verbose--> if True, prints out training ELBO, test ELBO, and error at the
-        end of every slidingErrorWindow
+
+        Trains the VAE model using the mini-batches. This is the recommended method.
+
+        Parameters
+        ----------
+        batch_size : int
+            Number of samples in each mini-batch
+        errorTol : float
+            Error tolerance in validation data ELBO for convergence.
+        verbose : bool
+            Whether to print updates regarding fitting.
+        logFile : str
+            Path to logfile which can store progress
+        optimizationStrategy : str
+            Allows user to update only certain parts of model. Useful for debugging. Must be one of: 'Full','EncoderOnly','DecoderOnly'
+        errorComputationWindow : float
+            Sliding window for computing error tolerance. Default appears to work well.
+
+        Returns
+        -------
+        tuple
+            (bestModelScore, vector of ELBO evaluations on training data,vector of ELBO evaluations on testing data, vector of all errors computed during fitting)
+
         """
         if errorComputationWindow is None:
             errorComputationWindow = max(int(0.05*self.maxEpochs),2)

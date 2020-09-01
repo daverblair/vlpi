@@ -49,9 +49,9 @@ class ClinicalDataSimulator:
 
     def __init__(self,numObsPhenotypes,numLatentDimensions,targetDisPrev,isOutlier=False,includeModifierEffects=True,numCatList=[],useMonotonic=True,**kwargs):
         """
-        Simulator Class for the variational latent phenotype model. 
-        
-        Simulated data is based on the simple model outlined in Blair et al. 
+        Simulator Class for the variational latent phenotype model.
+
+        Simulated data is based on the simple model outlined in Blair et al.
 
         Parameters
         ----------
@@ -70,7 +70,7 @@ class ClinicalDataSimulator:
         useMonotonic : boold, optional
             Whether to enforce monotonicity between latent phenotypes and risk for observed symptoms. The default is True.
         **kwargs : Multiple
-            Extensive parameter modification choices. See source code for details. Baseline choices match those used in simulation studies.
+            Extensive parameter modification choices. See source code for details. Baseline choices match those used in simulation analyses.
 
         Returns
         -------
@@ -102,14 +102,14 @@ class ClinicalDataSimulator:
             self.interceptPriors=torch.tensor([-3.0,2.0],dtype=torch.float32)
         else:
             self.interceptPriors=torch.tensor(kwargs['interceptPriors'],dtype=torch.float32)
-            
-            
+
+
         if 'targetDisEffectParam' not in allKeywordArgs:
             self.targetDisEffectParam=dist.Normal(0.0,1.0).icdf(1.0-self.targetDisPrev)
         else:
             self.targetDisEffectParam=torch.tensor(kwargs['targetDisEffectParam'],dtype=torch.float32)
-            
-        
+
+
         if 'latentPhenotypePriors' not in allKeywordArgs:
             self.latentPhenotypePrior=torch.tensor([0.0,1.0],dtype=torch.float32)
             self.latentPhenotypeOutlierPrior=torch.tensor([0.0,0.0001],dtype=torch.float32)
@@ -117,13 +117,13 @@ class ClinicalDataSimulator:
             self.latentPhenotypePrior=torch.tensor(kwargs['latentPhenotypePriors'][0],dtype=torch.float32)
             self.latentPhenotypeOutlierPrior=torch.tensor(kwargs['latentPhenotypePriors'][1],dtype=torch.float32)
             print("Warning: By specifying custom latent phenotype priors, you can break the relationship between outliers and spectrums.")
-            
+
         if self.includeModifierEffects:
             if 'modifierEffectPrior' not in allKeywordArgs:
                 self.modifierEffectPrior=torch.tensor([0.0,1.0],dtype=torch.float32)
             else:
                 self.modifierEffectPrior=torch.tensor(kwargs['modifierEffectPrior'],dtype=torch.float32)
-                
+
             if 'modifierEffectThreshold' not in allKeywordArgs:
                 self.modifierEffectThreshold=self.targetDisEffectParam
             else:
@@ -168,7 +168,8 @@ class ClinicalDataSimulator:
 
     def GenerateClinicalData(self,numSamples):
         """
-        
+
+        Simulates clinical data and returns a dictionary of the results.
 
         Parameters
         ----------
@@ -180,10 +181,18 @@ class ClinicalDataSimulator:
         output : dict
             Dictionary containing data from simulation.
 
+            output['latent_phenotypes']: Siumulated Latent Phenotypes
+            output['incidence_data']: Binary symptom matrix
+            output['covariate_data']: List of arrays containing categorical covariates.
+            output['target_dis_dx']: Mendelian/target disease diagnoses
+            output['model_params']: Dictionary of model parameters
+            output['model_params']['intercepts']: Vector of intercepts for symptom risk function.
+            output['model_params']['latentPhenotypeEffects']: Matrix of symptom risk parameters (loading matrix)
+
         """
 
         latentPhenotypes=torch.zeros([numSamples,self.numLatentDimensions],dtype=torch.float32)
-        
+
         for i in range(self.numLatentDimensions):
             if i!=self.targetDisComponent:
                 latentPhenotypes[:,i]=dist.Normal(self.latentPhenotypePrior[0],self.latentPhenotypePrior[1]).expand([numSamples]).sample()
@@ -194,8 +203,8 @@ class ClinicalDataSimulator:
                 else:
                     latentPhenotypes[:,i]=dist.Normal(self.latentPhenotypeOutlierPrior[0],self.latentPhenotypeOutlierPrior[1]).expand([numSamples]).sample()+targetDisSubjects*self.targetDisEffectParam
                 if self.includeModifierEffects:
-                    latentPhenotypes[:,i]=latentPhenotypes[:,i]+dist.Normal(self.modifierEffectThreshold,1.0).cdf(latentPhenotypes[:,i])*dist.Normal(self.modifierEffectPrior[0],self.modifierEffectPrior[1]).expand([numSamples]).sample()        
-        
+                    latentPhenotypes[:,i]=latentPhenotypes[:,i]+dist.Normal(self.modifierEffectThreshold,1.0).cdf(latentPhenotypes[:,i])*dist.Normal(self.modifierEffectPrior[0],self.modifierEffectPrior[1]).expand([numSamples]).sample()
+
 
         cat_cov_list = []
         if sum(self.numCatList)>0:

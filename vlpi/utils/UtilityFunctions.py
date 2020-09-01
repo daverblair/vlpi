@@ -76,20 +76,7 @@ def random_catcov(n_cat,n_samples,device):
     return torch.tensor(np.random.choice(np.arange(n_cat),size=(n_samples,1),p=samp_params),device=device)
 
 
-def _liability_CI_zero_func(params, CIvals,CIlevel):
-    assert CIlevel<1.0 and CIlevel>0.0,"CI must lie between 0.0 and 1.0"
-    p = (1.0-CIlevel)/2.0
-    cDist = norm(params[0],params[1])
-    return (norm(0.0,1.0).cdf(cDist.ppf(p))-CIvals[0],norm(0.0,1.0).cdf(cDist.ppf(CIlevel+p))-CIvals[1])
 
-
-def infer_liability_CI(CI95):
-    initParam = np.zeros(2)
-    initParam[0] = np.mean(norm(0.0,1.0).ppf(CI95))
-    initParam[1] = 1e-6
-    output = fsolve(_liability_CI_zero_func,initParam,args=(CI95,0.95),full_output=True)
-    assert output[2]==1,"Unable to find gaussian distribution with appropriate CI, consider alternative."
-    return output[0]
 
 
 def rel_diff(curr,prev):

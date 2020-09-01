@@ -22,11 +22,43 @@ class VAE(nn.Module):
 
 
     def SwitchDevice(self,new_compute_device):
+        """
+
+        Switches model to a different device.
+
+        Parameters
+        ----------
+        new_compute_device : int or str
+            Parameter that specifies the device. Can be integer (GPU) or str ('cpu')
+
+        """
         self.compute_device=new_compute_device
         self.to(self.compute_device)
 
 
     def __init__(self,numObsTraits:int, numCatList:Iterable[int],nLatentDim:int,decoderType:str,**kwargs):
+        """
+
+        Variational autoencoder used for latent phenotype inference.
+
+        Parameters
+        ----------
+        numObsTraits : int
+            Number of traits or symptoms used in the model.
+        numCatList : Iterable[int]
+            List containing the number of categories for each categorical covariate.
+        nLatentDim : int
+            Number of latent dimensions in the model
+        decoderType : str
+            Type of decoder. Must be one of the following: 'Linear','Linear_Monotonic','Nonlinear','Nonlinear_Monotonic'
+        **kwargs : type
+            Mutliple kwargs available. Please see source code for details.
+
+        Returns
+        -------
+        Nonlinear
+
+        """
         super(VAE,self).__init__()
         self.numObsTraits=numObsTraits
         self.nLatentDim = nLatentDim
@@ -166,6 +198,25 @@ class VAE(nn.Module):
 
 
     def ComputeELBOPerDatum(self,obs_dis_array,cat_cov_list,num_particles=10):
+        """
+
+        Computes the evidence lower bound (ELBO) for each observation in the dataset.
+
+        Parameters
+        ----------
+        obs_dis_array : torch.tensor
+            Binary array of observed data.
+        cat_cov_list : list of torch.tensor
+            List of categorical covariate values for the dataset
+        num_particles : int
+            Number of particles (samples) used to approximate the ELBOs
+
+        Returns
+        -------
+        torch.tensor
+            Per-datum ELBOs
+
+        """
         elboFunc = Trace_ELBO(num_particles=num_particles)
         elboVec = torch.zeros(obs_dis_array.shape[0],dtype=torch.float32,device=self.compute_device)
 
@@ -176,6 +227,27 @@ class VAE(nn.Module):
         return elboVec.reshape(elboVec.shape[0],1)
 
     def PredictLatentPhenotypes(self,obs_dis_array,cat_cov_list,returnScale=False,num_particles=10):
+        """
+        Produces estimates of posterior mean (and scale) of latent phenotypes given some set of observations.
+
+        Parameters
+        ----------
+        obs_dis_array : torch.tensor
+            Binary array of observed data.
+        cat_cov_list : list of torch.tensor
+            List of categorical covariate values for the dataset
+        returnScale : bool
+            Whether or not to include scale of posterior as well.
+        num_particles : int
+            Number of particles (samples) used to approximate the ELBOs
+
+        Returns
+        -------
+        torch.tensor
+            2-D (or 3-D if including scale) array of posterior distribution means (plus scale)
+
+        """
+
         z_mean,z_scale = self.encoder(obs_dis_array,*cat_cov_list)
         if returnScale:
             return z_mean,z_scale
@@ -184,9 +256,31 @@ class VAE(nn.Module):
 
 
     def PackageCurrentState(self):
+        """
+        Packages the model state dict as a dictionary.
+
+        Returns
+        -------
+        dict
+            Model state dict.
+
+        """
         packaged_model_state={}
         packaged_model_state['model_state'] = copy.deepcopy(self.state_dict(keep_vars=True))
         return packaged_model_state
 
     def LoadPriorState(self,prior_model_state):
+        """
+        Loads model state from dictionary
+
+        Parameters
+        ----------
+        prior_model_state : dict
+            Dictionary of model state produced by PackageCurrentState
+
+        Returns
+        -------
+        None
+
+        """
         self.load_state_dict(prior_model_state['model_state'],strict=True)

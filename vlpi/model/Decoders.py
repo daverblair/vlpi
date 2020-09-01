@@ -18,12 +18,12 @@ class LinearDecoder_Monotonic(nn.Module):
 
     def __init__(self,nInputDim:int,nCatCovList:Iterable[int],nOutputDim:int,dropLinearCovariateColumn:bool,includeBias:bool):
         """
-        Monotonic linear (stritly positive weights) decoder network mapping nInputDim +len(nCatCovList) 
+        Monotonic linear (stritly positive weights) decoder network mapping nInputDim +len(nCatCovList)
         inputs to nOutputDim nodes.
-        
+
         dropLinearCovariateColumn: whether to drop one value from each categorical covariate
         includeBias: whether or not to include a bias term (intercept) into the network
-        
+
         """
 
         super(LinearDecoder_Monotonic, self).__init__()
@@ -54,12 +54,12 @@ class LinearDecoder_Monotonic(nn.Module):
 class LinearDecoder(nn.Module):
     def __init__(self,nInputDim:int,nCatCovList:Iterable[int],nOutputDim:int,dropLinearCovariateColumn:bool,includeBias:bool):
         """
-        Linear decoder network mapping nInputDim +len(nCatCovList) inputs to 
+        Linear decoder network mapping nInputDim +len(nCatCovList) inputs to
         nOutputDim nodes.
-        
+
         dropLinearCovariateColumn: whether to drop one value from each categorical covariate
         includeBias: whether or not to include a bias term (intercept) into the network
-        
+
         """
         super(LinearDecoder, self).__init__()
         self.nCatCovList=nCatCovList
@@ -85,7 +85,7 @@ class LinearDecoder(nn.Module):
 class NonlinearMLPDecoder(nn.Module):
     def __init__(self,nInputDim:int,nCatCovList:Iterable[int],nOutputDim:int,dropLinearCovariateColumn:bool,coupleCovariates:bool,n_layers:int=2,n_hidden:int=128,dropout_rate:float=0.2,use_batch_norm:bool=True):
         """
-        Nonlinear MLP decoder network mapping nInputDim +len(nCatCovList) inputs to 
+        Nonlinear MLP decoder network mapping nInputDim +len(nCatCovList) inputs to
         nOutputDim nodes.
         """
         super(NonlinearMLPDecoder, self).__init__()
@@ -124,14 +124,14 @@ class NonlinearMLPDecoder(nn.Module):
 class NonlinearMLPDecoder_Monotonic(nn.Module):
     def __init__(self,nInputDim:int,nCatCovList:Iterable[int],nOutputDim:int,dropLinearCovariateColumn:bool,n_layers:int=2,n_hidden:int=128,dropout_rate:float=0.2,use_batch_norm:bool=False):
         """
-        Nonlinear, monotonic decoder network mapping nInputDim +len(nCatCovList) inputs to 
+        Nonlinear, monotonic decoder network mapping nInputDim +len(nCatCovList) inputs to
         nOutputDim nodes.
-        
+
         dropLinearCovariateColumn: whether to drop one value from each categorical covariate
         includeBias: whether or not to include a bias term (intercept) into the network
-        
+
         """
-        
+
         super(NonlinearMLPDecoder_Monotonic, self).__init__()
         self.nCatCovList=nCatCovList
         self.nOutputDim=nOutputDim
@@ -154,28 +154,10 @@ class NonlinearMLPDecoder_Monotonic(nn.Module):
             return self.output_layer(self.nonlinear_pos_latent(latent_var,[]))+self.linear_cov(torch.cat((*one_hot_cat_list,),dim=-1))
         else:
             return self.output_layer(self.nonlinear_pos_latent(latent_var,[]))
-        
-        
-        
-        
-        
+
+
+
+
     
-
-if __name__=='__main__':
-    n_cov = 0
-#    n_cat_cov = [2,3]
-    n_cat_cov=[]
-    nindim = 100
-    n_samples = 10
-    nOutput = 1
-
-    latentVals = torch.randint(low=0,high=2,size=(n_samples,nindim),dtype=torch.float32)
-
-    #build tensor list
-    cat_cov_list=[]
-    for n_cat in n_cat_cov:
-        cat_cov_list+=[random_catcov(n_cat,n_samples)]
-
-    test=NonlinearMLPDecoder_Monotonic(nindim,n_cat_cov,1,True,True)
 
     output = test.forward(latentVals,*cat_cov_list)

@@ -33,7 +33,7 @@ class vLPI:
 
             dropLinearCovariateColumn: boolean value indicated whether to drop one category from each covariate included into the model. Aids in identifiability. Defaults to True.
 
-            encoderNetworkHyperparameters: dictionary that speficies hyperparameters of the encoder neural networks. Default is a 2-layer MLP with 64 hidden nodes per layer. Dropout rate 0.0 with Batch-Normalization enabled. Larger networks are more difficult to train, while smaller networks are less expressive and may result in poorer approximations of the variational posterior. Based on testing, allowing for dropout appears to limit the models ability to detect rare events. Default: {'n_layers' : 2, 'n_hidden' : 64, 'dropout_rate': 0.0, 'use_batch_norm':True}
+            encoderNetworkHyperparameters: dictionary that specifies hyperparameters of the encoder neural networks. Default is a 2-layer MLP with 64 hidden nodes per layer. Dropout rate 0.0 with Batch-Normalization enabled. Larger networks are more difficult to train, while smaller networks are less expressive and may result in poorer approximations of the variational posterior. Based on testing, allowing for dropout appears to limit the models ability to detect low prevalence components. Default: {'n_layers' : 2, 'n_hidden' : 64, 'dropout_rate': 0.0, 'use_batch_norm':True}
 
             coupleCovariates: Specifies whether to couple covariates to non-linear MLP network (True), or to model them  using an independent linear network (False). Defaults to True. Only relevant if using a Non-linear decoder ('Nonlinear' or 'Nonlinear_Monotonic')
 
@@ -73,7 +73,7 @@ class vLPI:
         Parameters
         ----------
         batch_size : int, optional
-            Size of dataset batches for inference. The default is 1000 patients. Specifying 0 utilizes the full dataset for each optimization step, which is not typically advised due to the approximate nature of the gradient.
+            Size of dataset batches for inference. The default is 1000 patients. Specifying 0 utilizes the full dataset for each optimization step, which is not typically advised due to the approximate nature of the gradient (better to have more frequent updates).
         verbose : bool, optional
             Indicates whether or not to print (to std out) the loss function values and error after every epoch. The default is True.
 
@@ -93,7 +93,7 @@ class vLPI:
             Maximum number of epochs (passes through training data) for inference. Note, because annealing and learning rate updates depend on maxEpochs, this offers a simple way to adjust the speed at which these values change.
 
         computeDevice: int or None, optional
-            Specifies compute device for inference. Default is None, which instructs algorithm to use cpu. If integer is provided, then algorithm will be assigned to that integer valued gpu
+            Specifies compute device for inference. Default is None, which instructs algorithm to use cpu. If integer is provided, then algorithm will be assigned to that integer valued gpu.
 
         numDataLoaders: int
             Specifies the number of threads used to process data and prepare for upload into the gpu. Note, due to the speed of gpu, inference can become limited by data transfer speed, hence the use of multiple DataLoaders to improve this bottleneck. Default is 0, meaning just the dedicated cpu performs data transfer.
@@ -106,7 +106,7 @@ class vLPI:
 
 
         KLAnnealingParams: dict with keys 'initialTemp','maxTemp','fractionalDuration','schedule'
-            Parameters that define KL-Annealing strategy used during inference, important for avoiding local optima. Note, annealing is only used during computation of ELBO and gradients on training data. Test data ELBO evaluation, used to monitor convergence, is performed at the maximum desired temperature (typically 1.0, equivalent to standard variational inference). Therefore, it is possible for the model to converge even when the temperature hasn't reached it's final value. Although it's possible that further cooling would find a better optimum, this is highly unlikely in practice.
+            Parameters that define KL-Annealing strategy used during inference, important for avoiding local optima. Note, annealing is only used for computation of ELBO and gradients on training data. Validation data ELBO evaluation, used to monitor convergence, is performed at the maximum desired temperature (typically 1.0, equivalent to standard variational inference). Therefore, it is possible for the model to converge even when the temperature hasn't reached it's final value. It's possible that further cooling would find a better optimum, but this is highly unlikely in practice.
             initialTemp--initial temperature during inference. Default: 0.0
             maxTemp--final temperature obtained during inference. Default: 1.0 (standard variational inference)
             fractionalDuration--fraction of inference epochs used for annealing. Default is 0.25
@@ -226,15 +226,12 @@ class vLPI:
         numpy array
             training set embeddings.
         numpy array
-            training set embeddings.
+            valdiation set embeddings.
 
         -- or --
 
         numpy array
             embeddings for dataArrays
-
-
-
 
         """
 
@@ -282,7 +279,7 @@ class vLPI:
 
     def ReturnComponents(self):
         """
-        Returns the matrix of parameters defining f(Z), the function mapping the latent phenotypic space to the observed symptom risk values (sometimes called 'loadings' in factor analysis.
+        Returns the matrix of parameters defining f(Z), the function mapping the latent phenotypic space to the observed symptom risk values (sometimes called 'loadings' in factor analysis).
         This function is only available for linear f(Z).
 
         Returns
@@ -386,7 +383,7 @@ class vLPI:
 
     def PackageModel(self,fName=None):
         """
-        Packages the current model and returns it as a python dictionary. If
+        Packages the current model and returns it as a python dictionary. Will optionally write this dictionary to disk using PyTorch.
 
         Parameters
         ----------

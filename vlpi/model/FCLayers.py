@@ -15,7 +15,7 @@ from vlpi.utils.LinearPositiveWeights import LinearPositiveWeights
 
 
 class FCLayers_Monotonic(nn.Module):
-    r"""A helper class to build fully-connected layers for a neural network.
+    """A helper class to build fully-connected layers for a neural network.
     Uses Tanh for non-linearities; dropoutfor convergence.
     Adapted frome the scVI package: https://github.com/YosefLab/scVI.
 
@@ -53,7 +53,7 @@ class FCLayers_Monotonic(nn.Module):
              for i, (n_in, n_out) in enumerate(zip(layers_dim[:-1], layers_dim[1:]))]))
 
     def forward(self, x: torch.Tensor, *cat_list: int):
-        r"""Forward computation on ``x``.
+        """Forward computation on ``x``.
         :param x: tensor of values with shape ``(n_samples,n_in)``
         :param cat_list: list of category membership(s) for this sample, provided as (1,n_sample) tensors
         :return: tensor of shape ``(n_out,n_samples)``
@@ -83,7 +83,7 @@ class FCLayers_Monotonic(nn.Module):
 
 
 class FCLayers(nn.Module):
-    r"""A helper class to build fully-connected layers for a neural network.
+    """A helper class to build fully-connected layers for a neural network.
     Uses ReLU for non-linearities, BatchNorm1d and dropout for convergence.
     Adapted frome the scVI package: https://github.com/YosefLab/scVI.
 
@@ -121,7 +121,7 @@ class FCLayers(nn.Module):
              for i, (n_in, n_out) in enumerate(zip(layers_dim[:-1], layers_dim[1:]))]))
 
     def forward(self, x: torch.Tensor, *cat_list: int):
-        r"""Forward computation on ``x``.
+        """Forward computation on ``x``.
         :param x: tensor of values with shape ``(n_samples,n_in)``
         :param cat_list: list of category membership(s) for this sample, provided as (1,n_sample) tensors
         :return: tensor of shape ``(n_out,n_samples)``
@@ -149,12 +149,5 @@ class FCLayers(nn.Module):
         return x
 
 
-if __name__=='__main__':
 
-    testFC = FCLayers_Monotonic(n_in=1, n_out=50, n_cat_list=[2,3], n_layers=2, n_hidden=128, dropout_rate = 0.2)
-    testFC_ = FCLayers(n_in=1, n_out=50, n_cat_list=[2,3], n_layers=2, n_hidden=128, dropout_rate = 0.2)
-
-    simData = torch.randn(4,1)
-    cov1=torch.tensor([[1,0,0,1]]).transpose(0,1)
-    cov2=torch.tensor([[1,2,0,1]]).transpose(0,1)
     transformedData = testFC_.forward(simData,cov1,cov2)

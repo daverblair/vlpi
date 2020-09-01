@@ -18,7 +18,7 @@ ICD_PATH = pkg_resources.resource_filename('vlpi', 'data/ICDData/')
 class ICDCode:
     def __init__(self, code, associated_string,is_terminal, parent_code=None):
         """
-        
+
 
         Parameters
         ----------
@@ -41,8 +41,8 @@ class ICDCode:
         None.
 
         """
-        
-        
+
+
         self.code = code
         self.associated_string = associated_string
         self.parent_code = parent_code
@@ -81,23 +81,7 @@ class ICDUtilities:
 
 
     def _findParentInList(self,code,parentList):
-        """
-        
 
-        Parameters
-        ----------
-        code : TYPE
-            DESCRIPTION.
-        parentList : TYPE
-            DESCRIPTION.
-
-        Returns
-        -------
-        parentList : TYPE
-            DESCRIPTION.
-
-        """
-        
         while len(parentList) > 0:
             if parentList[-1] in code:
                 return parentList
@@ -107,7 +91,7 @@ class ICDUtilities:
 
     def ReturnCodeObject(self,code):
         """
-        Returns fulle code object (not just string) for a given code. 
+        Returns full code object (not just string) for a given code.
 
         Parameters
         ----------
@@ -120,7 +104,7 @@ class ICDUtilities:
             ICD10 code class for input string.
 
         """
-        
+
         if code in self.setOfUnusableCodes:
             return self.UnusableICDCodes[self.unusableCodeToIndexMap[code.replace('.','')]]
         else:
@@ -130,7 +114,6 @@ class ICDUtilities:
     def DeleteCode(self,del_code):
         """
         Removes the ICD code and all children (if exist) from data structure.
-
 
         Parameters
         ----------
@@ -142,8 +125,8 @@ class ICDUtilities:
         -------
         None
         """
-        
-    
+
+
         all_del_codes=self._deleteCode(del_code)
 
 
@@ -194,7 +177,7 @@ class ICDUtilities:
             ICD10 chapter.
 
         """
-        
+
 
         code = code.replace('.','')
         currentCode = self.ReturnCodeObject(code)
@@ -204,7 +187,7 @@ class ICDUtilities:
 
     def ReturnSubsumedTerminalCodes(self,parent_code):
         """
-        Returns all ICD10 codes that are children of the input code. 
+        Returns all ICD10 codes that are children of the input code.
 
         Parameters
         ----------
@@ -217,7 +200,7 @@ class ICDUtilities:
             List of ICD10 codes that are children to parent code.
 
         """
-        
+
         all_child_codes = self.ReturnCodeObject(parent_code).child_codes
         terminal_code_list=[]
         for child in all_child_codes:
@@ -231,8 +214,7 @@ class ICDUtilities:
 
     def __init__(self,useICD10UKBB=False,hierarchyFile=None,chapterFile=None):
         """
-        Class that manipulates the ICD10 codebook. It stores the codebook as a
-        simple tree (stored as a list called ICDCodes).
+        Class that manipulates the ICD10 codebook. It stores the codebook as a simple tree (stored as a list called ICDCodes).
 
 
         To initialize the class, expects flat two text files:
@@ -241,7 +223,7 @@ class ICDUtilities:
             2) ICD10 codes and hierarchy: icd10cm_order_2018.txt, https://www.cms.gov/Medicare/Coding/ICD10/2018-ICD-10-CM-and-GEMs.html
 
         By default, the package ships with 2018 version of ICD10-CM and 2020 version of ICD10 from UK Biobank. You can upgrade to 2019 (or downgrade for that matter) by specifying the path to another ICD10 file. ICD9 codebook could be used instead, but you would need to construct data files that match the structure of the ICD10 files.
-        
+
 
         Parameters
         ----------
@@ -255,14 +237,14 @@ class ICDUtilities:
         Raises
         ------
         ValueError
-            ValueError raised in unable to parse some line. Prints out the line of interest.
+            ValueError raised if unable to parse some line. Prints out the line of interest.
 
         Returns
         -------
         None.
 
         """
-        
+
         if hierarchyFile==None:
             if useICD10UKBB:
                 hierarchyFile=ICD_PATH+'icd10_ukbb.txt'
@@ -369,8 +351,8 @@ class ICD10TranslationMap:
 
     def __init__(self,primaryEncoding=None,secondaryEncoding=None):
         """
-        Builds translation map between two ICD Utilities with at least some shared codes by taking advantage of shared hierarchical structure. 
-        
+        Builds translation map between two ICD Utilities with at least some shared codes by taking advantage of shared hierarchical structure.
+
         If primaryEncoding and secondaryEncoding are unspecified, class creates a map between ICD10-CM and ICD10 (UKBB)
 
         Parameters
@@ -385,7 +367,7 @@ class ICD10TranslationMap:
         None.
 
         """
-        
+
         if (primaryEncoding is not None) or (secondaryEncoding is not None):
             assert (secondaryEncoding is not None) and (secondaryEncoding is not None), "Must specify primary and secondary encoding if providing one or the other."
             self.primaryEncoding=primaryEncoding
@@ -414,7 +396,7 @@ class ICD10TranslationMap:
         ----------
         primaryCode : str
             Diagnostic code to be converted .
-        includeRelationship : bool, optional. 
+        includeRelationship : bool, optional.
             Specicies whether to return the relationship type in addition to code. The default is False.
 
         Returns
@@ -423,7 +405,7 @@ class ICD10TranslationMap:
             Set of codes aligned to the code of interest.
 
         """
-        
+
         if includeRelationship:
             look_up=['Secondary Code(s)','Relationship']
         else:
@@ -432,6 +414,3 @@ class ICD10TranslationMap:
             return self.EncodingCoversionTable.loc[primaryCode][look_up]
         except KeyError:
             return set([])
-
-
-
