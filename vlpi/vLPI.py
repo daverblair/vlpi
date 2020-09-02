@@ -12,6 +12,8 @@ from vlpi.optim.Optimizer import Optimizer
 from vlpi.data.ClinicalDataset import ClinicalDatasetSampler,ClinicalDataset
 from vlpi.model.VAE import VAE
 
+__version__ = "0.0.8"
+
 class vLPI:
 
 

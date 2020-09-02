@@ -147,7 +147,3 @@ class FCLayers(nn.Module):
                             x = torch.cat((*one_hot_cat_list,), dim=-1)
                     x = layer(x)
         return x
-
-
-
-    transformedData = testFC_.forward(simData,cov1,cov2)

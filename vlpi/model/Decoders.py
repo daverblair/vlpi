@@ -154,10 +154,3 @@ class NonlinearMLPDecoder_Monotonic(nn.Module):
             return self.output_layer(self.nonlinear_pos_latent(latent_var,[]))+self.linear_cov(torch.cat((*one_hot_cat_list,),dim=-1))
         else:
             return self.output_layer(self.nonlinear_pos_latent(latent_var,[]))
-
-
-
-
-    
-
-    output = test.forward(latentVals,*cat_cov_list)

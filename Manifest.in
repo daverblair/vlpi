@@ -1,0 +1,2 @@
+recursive-include vlpi/data/ICDData *
+recursive-include tests *

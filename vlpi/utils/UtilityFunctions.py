@@ -8,8 +8,6 @@ Created on Fri Jul 12 11:13:55 2019
 import torch
 import numpy as np
 import subprocess
-from scipy.stats import norm
-from scipy.optimize import fsolve
 from scipy import sparse
 from scipy.stats import fisher_exact as _fisher_exact
 from scipy.stats import ttest_ind
