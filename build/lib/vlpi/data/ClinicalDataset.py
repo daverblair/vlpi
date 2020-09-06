@@ -293,17 +293,17 @@ class ClinicalDataset:
         allNewCodes = sorted(list(set().union(*oldCodeToNewMap.values())))
         newCodeToIntMap = dict(zip(allNewCodes,range(len(allNewCodes))))
         newIntToCodeMap = dict(zip(newCodeToIntMap.values(),newCodeToIntMap.keys()))
+        if self.data!=None:
+            def _convFunc(x):
+                newDxSet=set([])
+                for dx in x:
+                    try:
+                        newDxSet.update(oldCodeToNewMap[self.dataIndexToDxCodeMap[dx]])
+                    except KeyError:
+                        pass
+                return list({newCodeToIntMap[x] for x in newDxSet})
 
-        def _convFunc(x):
-            newDxSet=set([])
-            for dx in x:
-                try:
-                    newDxSet.update(oldCodeToNewMap[self.dataIndexToDxCodeMap[dx]])
-                except KeyError:
-                    pass
-            return list({newCodeToIntMap[x] for x in newDxSet})
-
-        self.data['dx_codes'] = self.data['dx_codes'].apply(_convFunc)
+            self.data['dx_codes'] = self.data['dx_codes'].apply(_convFunc)
         self.dataIndexToDxCodeMap = newIntToCodeMap
         self.dxCodeToDataIndexMap = newCodeToIntMap
         self.numDxCodes=len(self.dxCodeToDataIndexMap)
