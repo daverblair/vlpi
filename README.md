@@ -133,7 +133,7 @@ o=axes[0].set_ylabel('Inferred Latent\nPhenotype 10',fontsize=20)
 o=axes[1].set_ylabel('Inferred Latent\nPhenotype 7',fontsize=20)
 
 ```
-![Alt text](README_files/README_28_0.png?raw=true "Latent Phenotypes")
+![Alt text](README_files/README_30_0.png?raw=true "Latent Phenotypes")
 
 
 Clearly, the inferred and simulated latent phenotypes are highly correlated. However, there is a fair amount of noise associated with the inferred latent phenotypes, and in addition, there are floor/ceiling effects. These reflect a loss of information that occurs when continuous traits are transformed into noisy, binary symptoms. This noise level is greatly reduced by simulating datasets with hundreds of symptoms, although this is not a realistic clinical scenario.
