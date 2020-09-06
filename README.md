@@ -14,7 +14,7 @@ The second part of the software package, the <code>vLPI</code> class, implements
 
 ## Simulation Example
 
-First, we will import the functions required for dataset simulation and inference from the <code>vlpi</code> package. Note, <code>torch</code> and <code>string</code> are imported simply to assist with the simulation. 
+First, we will import the functions required for dataset simulation and inference from the <code>vlpi</code> package. Note, <code>torch</code> and <code>string</code> are imported simply to assist with the simulation.
 
 ``` python
 from vlpi.data.ClinicalDataset import ClinicalDataset,ClinicalDatasetSampler
@@ -94,8 +94,9 @@ sns.lineplot(x=range(1,len(inference_output[2])+1)[20:],y=inference_output[2][20
 o=plt.xlabel('Epoch')
 o=plt.ylabel('-ELBO')
 ```
+![Alt text](README_files/README_26_0.png?raw=true "Model Convergence")
 
-Convergence appears to have been attained, but we can also compare the simulated and inferred symptom risk functions. If the inference algorithm is converging to the correct mode, then the two functions should be nearly identical. 
+Convergence appears to have been attained, but we can also compare the simulated and inferred symptom risk functions. If the inference algorithm is converging to the correct mode, then the two functions should be nearly identical.
 
 ``` python
 f,axes = plt.subplots(1, 2,figsize=(16,8))
@@ -131,4 +132,4 @@ o=axes[1].set_ylabel('Inferred Latent\nPhenotype 7',fontsize=20)
 
 ```
 
-Clearly, the inferred and simulated latent phenotypes are highly correlated. However, there is a fair amount of noise associated with the inferred latent phenotypes, and in addition, there are floor/ceiling effects. These reflect a loss of information that occurs when continuous traits are transformed into noisy, binary symptoms. This noise level is greatly reduced by simulating datasets with hundreds of symptoms, although this is not a realistic clinical scenario. 
+Clearly, the inferred and simulated latent phenotypes are highly correlated. However, there is a fair amount of noise associated with the inferred latent phenotypes, and in addition, there are floor/ceiling effects. These reflect a loss of information that occurs when continuous traits are transformed into noisy, binary symptoms. This noise level is greatly reduced by simulating datasets with hundreds of symptoms, although this is not a realistic clinical scenario.

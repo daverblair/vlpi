@@ -37,7 +37,7 @@ sampler = ClinicalDatasetSampler(clinicalData,training_data_fraction,returnArray
 infNumberOfLatentPhenotypes=10
 vlpiModel= vLPI(sampler,infNumberOfLatentPhenotypes)
 
-inference_output = vlpiModel.FitModel(batch_size=1000,errorTol=(1.0/num_samples))
+inference_output = vlpiModel.FitModel(batch_size=1000,errorTol=(1.0/numberOfSamples))
 vlpiModel.PackageModel('ExampleModel.pth')
 
 inferredCrypticPhenotypes=vlpiModel.ComputeEmbeddings((simData['incidence_data'],simData['covariate_data']))
