@@ -40,5 +40,5 @@ vlpiModel= vLPI(sampler,infNumberOfLatentPhenotypes)
 inference_output = vlpiModel.FitModel(batch_size=1000,errorTol=(1.0/numberOfSamples))
 vlpiModel.PackageModel('ExampleModel.pth')
 
-inferredCrypticPhenotypes=vlpiModel.ComputeEmbeddings((simData['incidence_data'],simData['covariate_data']))
+inferredCrypticPhenotypes=vlpiModel.ComputeEmbeddings((simulatedData['incidence_data'],simulatedData['covariate_data']))
 riskFunction=vlpiModel.ReturnComponents()
