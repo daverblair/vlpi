@@ -564,7 +564,7 @@ class ClinicalDatasetSampler():
         currentClinicalDataset : ClinicalDataset
             Instance of the class ClinicalDataset
         trainingFraction : type
-            Fraction of dataset used for training.
+            Fraction of dataset used for training. Must be between 0.0 and 1.0.
         conditionSamplingOnDx : Iterable[str]
             Allows sampling to be conditioned on a set of diagnoses such that at least one patient in every sample had at least one of the diagnoses in the set. Note: original dataset is modified.
         returnArrays : str
@@ -586,6 +586,7 @@ class ClinicalDatasetSampler():
         self._returnAuxData=False
         self._auxDataset=None
         self.trainingFraction = trainingFraction
+        assert self.trainingFraction >0.0 and self.trainingFraction<1.0, "Fraction of dataset used for training must be between 0.0 and 1.0."
         self.fracWDx=0.0
         self.numTotalSamples = len(self.currentClinicalDataset.data)
         self.includedCovariates = self.currentClinicalDataset.catCovConversionDicts.keys()
