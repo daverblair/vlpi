@@ -12,9 +12,10 @@ from vlpi.optim.Optimizer import Optimizer
 from vlpi.data.ClinicalDataset import ClinicalDatasetSampler,ClinicalDataset
 from vlpi.model.VAE import VAE
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 class vLPI:
+
 
 
     def __init__(self,datasetSampler,nLatentDim,latentPhenotypeMap='Linear_Monotonic',**kwargs):

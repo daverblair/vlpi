@@ -293,7 +293,7 @@ class ClinicalDataset:
         allNewCodes = sorted(list(set().union(*oldCodeToNewMap.values())))
         newCodeToIntMap = dict(zip(allNewCodes,range(len(allNewCodes))))
         newIntToCodeMap = dict(zip(newCodeToIntMap.values(),newCodeToIntMap.keys()))
-        if self.data!=None:
+        if self.data is not None:
             def _convFunc(x):
                 newDxSet=set([])
                 for dx in x:

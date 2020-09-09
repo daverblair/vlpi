@@ -14,8 +14,7 @@ import re
 version = re.search(
     '^__version__\s*=\s*"(.*)"',
     open('vlpi/vLPI.py').read(),
-    re.M
-    ).group(1)
+    re.M).group(1)
 
 
 

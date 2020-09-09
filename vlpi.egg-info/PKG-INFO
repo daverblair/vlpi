@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: vlpi
-Version: 0.1.0
+Version: 0.1.1
 Summary: Python implementation of the variational latent phenotype model described in Blair et al..
 Home-page: https://github.com/daverblair/vlpi
 Author: David Blair
@@ -22,7 +22,7 @@ Description: # Variational Latent Phenotype Inference (vLPI)
         
         ## Simulation Example
         
-        First, we will import the functions required for dataset simulation and inference from the <code>vlpi</code> package. Note, <code>torch</code> and <code>string</code> are imported simply to assist with the simulation. 
+        First, we will import the functions required for dataset simulation and inference from the <code>vlpi</code> package. Note, <code>torch</code> and <code>string</code> are imported simply to assist with the simulation.
         
         ``` python
         from vlpi.data.ClinicalDataset import ClinicalDataset,ClinicalDatasetSampler
@@ -102,8 +102,9 @@ Description: # Variational Latent Phenotype Inference (vLPI)
         o=plt.xlabel('Epoch')
         o=plt.ylabel('-ELBO')
         ```
+        ![Alt text](README_files/README_26_0.png?raw=true "Model Convergence")
         
-        Convergence appears to have been attained, but we can also compare the simulated and inferred symptom risk functions. If the inference algorithm is converging to the correct mode, then the two functions should be nearly identical. 
+        Convergence appears to have been attained, but we can also compare the simulated and inferred symptom risk functions. If the inference algorithm is converging to the correct mode, then the two functions should be nearly identical.
         
         ``` python
         f,axes = plt.subplots(1, 2,figsize=(16,8))
@@ -118,6 +119,8 @@ Description: # Variational Latent Phenotype Inference (vLPI)
         o=axes[0].set_title('Simulated Symptom\nRisk Function',fontsize=36)
         o=axes[1].set_title('Inferred Symptom\nRisk Function',fontsize=36)
         ```
+        ![Alt text](README_files/README_28_0.png?raw=true "Risk Functions")
+        
         
         Note, the inference algorithm automatically selects the appropriate number of latent phenotypes by zeroing out the parts of the risk function that correspond to the unneeded components. As a final step, we can compare the inferred latent phenotypes themselves. In this case, we simply visually match the simulated and inferred latent phenotypes based on the risk functions depicted above, but there are formal ways to align matrices of parameters (Orthogonal Procrustes Analysis, see Blair et al).
         
@@ -138,8 +141,10 @@ Description: # Variational Latent Phenotype Inference (vLPI)
         o=axes[1].set_ylabel('Inferred Latent\nPhenotype 7',fontsize=20)
         
         ```
+        ![Alt text](README_files/README_30_0.png?raw=true "Latent Phenotypes")
         
-        Clearly, the inferred and simulated latent phenotypes are highly correlated. However, there is a fair amount of noise associated with the inferred latent phenotypes, and in addition, there are floor/ceiling effects. These reflect a loss of information that occurs when continuous traits are transformed into noisy, binary symptoms. This noise level is greatly reduced by simulating datasets with hundreds of symptoms, although this is not a realistic clinical scenario. 
+        
+        Clearly, the inferred and simulated latent phenotypes are highly correlated. However, there is a fair amount of noise associated with the inferred latent phenotypes, and in addition, there are floor/ceiling effects. These reflect a loss of information that occurs when continuous traits are transformed into noisy, binary symptoms. This noise level is greatly reduced by simulating datasets with hundreds of symptoms, although this is not a realistic clinical scenario.
         
 Platform: UNKNOWN
 Classifier: Programming Language :: Python :: 3
