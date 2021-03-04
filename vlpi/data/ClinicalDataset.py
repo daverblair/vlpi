@@ -654,7 +654,7 @@ class ClinicalDatasetSampler():
             self.trainingDataIndex=[np.setdiff1d(ind,index_vals) for ind in self.trainingDataIndex]
             self.testDataIndex=[np.setdiff1d(ind,index_vals) for ind in self.testDataIndex]
         if dropFromFullDataset==False:
-            print("WARNING: Samples dropped from ClinicalDatasetSampler are still in the ClinicalDataset. Therefore, they can be returned by methods that bypass the Sampler!"
+            print("WARNING: Samples dropped from ClinicalDatasetSampler are still in the ClinicalDataset. Therefore, they can be returned by methods that bypass the Sampler!")
 
         else:
             index_vals=self.currentClinicalDataset.data.index.intersection(excluded)
