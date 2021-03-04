@@ -553,7 +553,6 @@ class ClinicalDatasetSampler():
                 return torch.tensor(x,dtype = torch.long)
 
 
-
     def __init__(self, currentClinicalDataset,trainingFraction,conditionSamplingOnDx:Iterable[str]=[],returnArrays='Numpy',shuffle=True):
         """
 
@@ -629,6 +628,40 @@ class ClinicalDatasetSampler():
 
             self.trainingDataIndex=[dataWithDx[0:cutOffValWDx],dataWithoutDx[0:cutOffValWoDx]]
             self.testDataIndex=[dataWithDx[cutOffValWDx:],dataWithoutDx[cutOffValWoDx:]]
+
+    def DropSamples(self,index_vals,dropFromFullDataset=True):
+
+        """
+
+        Parameters
+        ----------
+        index_vals : array
+            Index values to drop from the dataset.
+
+        dropFromFullDataset : boolean; default True
+            Indicates whether to drop the samples from the full dataset rather than only the sampler. By default, drops from the full dataset to avoid cases where samples are returned because data is accessed outside of sampler.
+
+        Returns
+        -------
+        None
+        """
+
+        #first remove samples from indices
+        if isinstance(self.trainingDataIndex,list)==False:
+            self.trainingDataIndex=np.setdiff1d(self.trainingDataIndex,index_vals)
+            self.testDataIndex=np.setdiff1d(self.trainingDataIndex,index_vals)
+        else:
+            self.trainingDataIndex=[np.setdiff1d(ind,index_vals) for ind in self.trainingDataIndex]
+            self.testDataIndex=[np.setdiff1d(ind,index_vals) for ind in self.testDataIndex]
+        if dropFromFullDataset==False:
+            print("WARNING: Samples dropped from ClinicalDatasetSampler are still in the ClinicalDataset. Therefore, they can be returned by methods that bypass the Sampler!"
+
+        else:
+            index_vals=self.currentClinicalDataset.data.index.intersection(excluded)
+            self.currentClinicalDataset.data.drop(index=index_vals,inplace=True)
+
+
+
 
     def ChangeArrayType(self,newArrayType):
         """
