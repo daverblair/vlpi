@@ -657,7 +657,7 @@ class ClinicalDatasetSampler():
             print("WARNING: Samples dropped from ClinicalDatasetSampler are still in the ClinicalDataset. Therefore, they can be returned by methods that bypass the Sampler!")
 
         else:
-            index_vals=self.currentClinicalDataset.data.index.intersection(excluded)
+            index_vals=self.currentClinicalDataset.data.index.intersection(index_vals)
             self.currentClinicalDataset.data.drop(index=index_vals,inplace=True)
 
 
