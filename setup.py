@@ -36,7 +36,7 @@ setuptools.setup(
     include_package_data=True,
     packages=setuptools.find_packages(),
     install_requires=[
-        'torch>=1.5.1',
+        'torch==1.5.1',
         'pyro-ppl>=1.3.1',
         'numpy>=1.19.0',
         'pandas>=1.0.5',
