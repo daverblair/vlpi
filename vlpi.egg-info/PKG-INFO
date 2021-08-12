@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: vlpi
-Version: 0.1.5
+Version: 0.1.6
 Summary: Python implementation of the variational latent phenotype model described in Blair et al..
 Home-page: https://github.com/daverblair/vlpi
 Author: David Blair
