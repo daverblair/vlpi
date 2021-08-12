@@ -127,7 +127,6 @@ class ClinicalDataset:
             headLine = clinicalFile.readline().strip('\n').split('\t')
             catCovNames = [h for h in headLine if headLine.index(h) not in [dxCodeColumn,indexColumn]+skipColumns]
         else:
-            currentLine = clinicalFile.readline().strip('\n').split('\t')
             catCovNames=['Covariate_'+str(i+1) for i in range(len(currentLine)-(1+self.none_to_int(indexColumn)+len(skipColumns)))]
 
         colNames = ['patient_id','dx_codes']+catCovNames
