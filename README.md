@@ -1,16 +1,32 @@
 # Variational Latent Phenotype Inference (vLPI)
 
-The <code>vlpi</code> software package implements the latent phenotype model described in Blair et al, which infers the cryptic, quantitative traits that underlie some set of observed disease symptoms. Details concerning the implementation of the model and inference algorithm can be found in the Supplementary Materials of Blair et al. Please contact david.blair@ucsf.edu with any questions.
+The <code>vlpi</code> software package implements the latent phenotype model described in Blair et al, which infers cryptic, quantitative traits that capture the variability observed across a set of disease symptoms. Details concerning the implementation of the model and inference algorithm can be found in the Supplementary Materials of Blair et al. 2021 (https://doi.org/10.1101/2021.08.26.21262300). Please contact david.blair@ucsf.edu with any questions.
+
+## Dependencies
+
+1) torch==1.5.1
+2) pyro-ppl>=1.3.1
+3) numpy>=1.19.0
+4) pandas>=1.0.5
+5) scipy>=1.5.2
+6) scikit-learn>=0.22.1
+7) typing
+8) unidecode
 
 ## Installation
 
 The software package can be installed using pip by running the following command:
 pip install vlpi
+
+This process takes under a few minutes for all the software configurations tested. A singularity file that creates a linux container with this software pre-installed is available at https://github.com/daverblair/singularity_vlpi.
+
 ## Use
 
-The software package is essentially broken into two sections. The first implements a data structure (<code>ClinicalDataset</code> class) that efficiently stores and manipulates large clinical datasets. It is essentially a sparse binary array with added functionality that automates many tasks, such as constructing training and validation splits and converting among different symptom encodings. In addition, another class (<code>ClinicalDatasetSampler</code>) is used to efficiently generate random subsets of the <code>ClinicalDataset</code>, which is important for training.
+The software package is essentially broken into two sections. The first implements a data structure (<code>ClinicalDataset</code> class) that efficiently stores and manipulates large clinical datasets. It is essentially a sparse binary array with added functionality that automates many tasks, such as constructing training and validation splits and converting among different ICD10 encodings. In addition, another class (<code>ClinicalDatasetSampler</code>) is used to efficiently generate random subsets of the <code>ClinicalDataset</code>, which is important for training.
 
-The second part of the software package, the <code>vLPI</code> class, implements the model fitting itself using a stochastic, amortized variational inference algorithm (see Blair et al. for details). It requires a <code>ClinicalDataset</code> class passed in the form of a <code>ClinicalDatasetSampler</code>. Below, we provide an example of how to use the software package by simulating a relatively simple symptom dataset. Further details regarding the package and it's functionality can be found by reading the source code documentation associated with the individual functions and classes.  
+The second part of the software package, the <code>vLPI</code> class, implements the model fitting itself using a stochastic, amortized variational inference algorithm (see Blair et al. for details). It requires a <code>ClinicalDataset</code> class passed in the form of a <code>ClinicalDatasetSampler</code>. Below, we provide an example of how to use the software package by simulating a relatively simple clinical dataset. Further details regarding the package and its functionality can be found by reading the source code documentation, specifically instructions associated with individual functions and classes.  
+
+Run times vary depending on the size and complexity of the dataset. For the analyses described in Blair et al. 2021 (https://doi.org/10.1101/2021.08.26.21262300), most models converge in less than 20 minutes on a gpu-enabled machine. Inference times on a non-gpu machine are considerably longer, likely on the order of a few hours. Note, this code was optimized to run on gpu-enabled machines.
 
 ## Simulation Example
 
