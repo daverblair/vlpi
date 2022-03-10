@@ -89,7 +89,6 @@ class ClinicalDataset:
 
         self.numDxCodes = len(self.dxCodeToDataIndexMap)
         self.data=None
-        self.numPatients = None
         self.catCovConversionDicts={}
 
     def ReadDatasetFromFile(self,clinicalDataset,dxCodeColumn,indexColumn = None, skipColumns=[], hasHeader=True,chunkSize = 500):
@@ -160,7 +159,6 @@ class ClinicalDataset:
         #shuffle data and create new index
         self.data = self.data.sample(frac=1).reset_index(drop=True)
         self.data.set_index('patient_id',drop=False, inplace=True)
-        self.numPatients = len(self.data)
 
 
     def FindAllPatients_wDx(self,dx_code):
@@ -347,7 +345,7 @@ class ClinicalDataset:
         for dx_code in dx_code_list:
             dx_code.replace('.','')
             allPatients_wDx=self.FindAllPatients_wDx(dx_code)
-            hasDx=np.zeros(self.numPatients,dtype=np.bool)
+            hasDx=np.zeros(self.data.shape[0],dtype=np.bool)
             self.data.insert(len(self.data.columns),'has_'+dx_code,hasDx)
             self.data.loc[allPatients_wDx,'has_'+dx_code]=True
         self.ExcludeAll(dx_code_list)
@@ -404,7 +402,6 @@ class ClinicalDataset:
             self.dataIndexToDxCodeMap = pickle.load(f)
             self.numDxCodes = pickle.load(f)
 
-        self.numPatients = len(self.data)
 
 
 
@@ -463,7 +460,6 @@ class ClinicalDataset:
         self.data = pd.DataFrame(dataDict)
         self.data = self.data.sample(frac=1).reset_index(drop=True)
         self.data.set_index('patient_id',drop=False, inplace=True)
-        self.numPatients = len(self.data)
 
     def ReturnSparseDataMatrix(self,index:Iterable[int]=[]):
         """
