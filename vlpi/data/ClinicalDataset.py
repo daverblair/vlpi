@@ -647,7 +647,7 @@ class ClinicalDatasetSampler():
         #first remove samples from indices
         if isinstance(self.trainingDataIndex,list)==False:
             self.trainingDataIndex=np.setdiff1d(self.trainingDataIndex,index_vals)
-            self.testDataIndex=np.setdiff1d(self.trainingDataIndex,index_vals)
+            self.testDataIndex=np.setdiff1d(self.testDataIndex,index_vals)
         else:
             self.trainingDataIndex=[np.setdiff1d(ind,index_vals) for ind in self.trainingDataIndex]
             self.testDataIndex=[np.setdiff1d(ind,index_vals) for ind in self.testDataIndex]
