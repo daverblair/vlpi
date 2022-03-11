@@ -1,153 +1,172 @@
 Metadata-Version: 2.1
 Name: vlpi
-Version: 0.1.7
+Version: 0.1.8
 Summary: Python implementation of the variational latent phenotype model described in Blair et al..
 Home-page: https://github.com/daverblair/vlpi
 Author: David Blair
 Author-email: david.blair@ucsf.edu
 License: UNKNOWN
-Description: # Variational Latent Phenotype Inference (vLPI)
-        
-        The <code>vlpi</code> software package implements the latent phenotype model described in Blair et al, which infers the cryptic, quantitative traits that underlie some set of observed disease symptoms. Details concerning the implementation of the model and inference algorithm can be found in the Supplementary Materials of Blair et al. Please contact david.blair@ucsf.edu with any questions.
-        
-        ## Installation
-        
-        The software package can be installed using pip by running the following command:
-        pip install vlpi
-        ## Use
-        
-        The software package is essentially broken into two sections. The first implements a data structure (<code>ClinicalDataset</code> class) that efficiently stores and manipulates large clinical datasets. It is essentially a sparse binary array with added functionality that automates many tasks, such as constructing training and validation splits and converting among different symptom encodings. In addition, another class (<code>ClinicalDatasetSampler</code>) is used to efficiently generate random subsets of the <code>ClinicalDataset</code>, which is important for training.
-        
-        The second part of the software package, the <code>vLPI</code> class, implements the model fitting itself using a stochastic, amortized variational inference algorithm (see Blair et al. for details). It requires a <code>ClinicalDataset</code> class passed in the form of a <code>ClinicalDatasetSampler</code>. Below, we provide an example of how to use the software package by simulating a relatively simple symptom dataset. Further details regarding the package and it's functionality can be found by reading the source code documentation associated with the individual functions and classes.  
-        
-        ## Simulation Example
-        
-        First, we will import the functions required for dataset simulation and inference from the <code>vlpi</code> package. Note, <code>torch</code> and <code>string</code> are imported simply to assist with the simulation.
-        
-        ``` python
-        from vlpi.data.ClinicalDataset import ClinicalDataset,ClinicalDatasetSampler
-        from vlpi.data.ClinicalDataSimulator import ClinicalDataSimulator
-        from vlpi.vLPI import vLPI
-        import torch
-        import string
-        
-        seed=torch.manual_seed(1023)
-        ```
-        
-        Using the <code>ClinicalDataSimulator</code> class, simulating a clinical dataset of binary symptoms is straightforward. Additional details regarding the functionality of <code>ClinicalDataSimulator</code> are provided in the source code.
-        
-        ``` python
-        numberOfSamples=50000
-        numberOfSymptoms=20
-        
-        rareDiseaseFrequency=0.001
-        numLatentPhenotypes=2
-        simulator = ClinicalDataSimulator(numberOfSymptoms,numLatentPhenotypes,rareDiseaseFrequency)
-        simulatedData=simulator.GenerateClinicalData(numberOfSamples)
-        ```
-        
-        The <code>simulatedData</code> returned by <code>ClinicalDataSimulator</code> is a nested dictionary of results, but to use the <code>vLPI</code> model, we need to get this information into a <code>ClinicalDataset</code>. First, we initialize an empty dataset, which by default is constructed using the full ICD10-CM codebook.
-        
-        ``` python
-        clinicalData = ClinicalDataset()
-        ```
-        
-        Most applications, however, do not require the complete codebook. In fact, we recommend against trying to fit this model to more than 10-100 hundred symptoms, as it unlikely to be able to reliably tease apart such a complex latent structure. Therefore, a <code>ClinicalDataset</code> can be a priori manipulated such that it aligns to a different encoding, which is what we do below. Note, the <code>ClinicalDataset</code> class can also read a dataset directly from a text file (see <code>ClinicalDataset.ReadDatasetFromFile</code>), and this should work for arbitrary encodings as long as the <code>ClinicalDataset</code> class is set up appropriately. However, we have only tested this function on raw, ICD10-CM encoded datasets.
-        
-        ``` python
-        allICDCodes = list(clinicalData.dxCodeToDataIndexMap.keys())
-        symptomConversionMap=dict(zip(allICDCodes[0:numberOfSymptoms],string.ascii_uppercase[0:numberOfSymptoms]))
-        clinicalData.ConstructNewDataArray(symptomConversionMap)
-        print(clinicalData.dxCodeToDataIndexMap)
-        ```
-        
-        Now, we can load our simulated symptom data into the <code>ClinicalDataset</code>. Note, the empty list argument would normally contain a list of covariate names, but since we didn't simulate any covariates, there are no names to provide.
-        
-        ``` python
-        clinicalData.LoadFromArrays(simulatedData['incidence_data'],simulatedData['covariate_data'],[],catCovDicts=None, arrayType = 'Torch')
-        ```
-        
-        The next step is contruct a <code>ClinicalDatasetSampler</code> class from the <code>ClinicalDataset</code>, which enables the stochastic sampling that is required for inference. To do so, you must specify a fraction of the dataset to withhold for testing/validation. Note, there is also a way to write <code>ClinicalDataset</code> and <code>ClinicalDatasetSamplers</code> to disk, that way the same dataset and sampler class can be reloaded to ensure replicability.
-        
-        ``` python
-        training_data_fraction=0.75
-        sampler = ClinicalDatasetSampler(clinicalData,training_data_fraction,returnArrays='Torch')
-        ```
-        
-        Now, we're ready to perform model inference. Technically, only the initial number of latent phenotypes needs to be specified, although there are additional optional arguments as well (see source code). We've really only tested the model on symptoms sets that likely contain <10 latent phenotypes. The model may be effective at inferring more complex structures, but we have not thoroughly tested this.
-        
-        ``` python
-        infNumberOfLatentPhenotypes=10
-        vlpiModel= vLPI(sampler,infNumberOfLatentPhenotypes)
-        ```
-        
-        Fitting the model is very straightforward, although there are multiple hyper-parameters (learning rate, batch size, max epochs, etc) that can be changed from their baseline values. The default hyperparameters and different options used in practice are described in Blair et al. We always recommend saving any model that was successfully fit using the <code>vLPI.PackageModel</code> function.
-        
-        ``` python
-        inference_output = vlpiModel.FitModel(batch_size=1000,errorTol=(1.0/numberOfSamples),verbose=False)
-        ```
-        
-        Great! Now, we can check model fit with little bit of visualization. We'll use the <code>matplotlib</code> and <code>seaborn</code> plotting libraries for this, which are not included with the <code>vlpi</code> package. First, we can track the loss function on the held-out testing data, where the loss function is the negative evidence lower bound. We dropped the first 20 epochs because the they obscure the rest of the data.
-        
-        ``` python
-        import seaborn as sns
-        from matplotlib import cm
-        import numpy as np
-        import matplotlib.pyplot as plt
-        sns.set(context='talk',color_codes=True,style='ticks',font='Arial',font_scale=2.5,rc={'axes.linewidth':5,"font.weight":"bold",'axes.labelweight':"bold",'xtick.major.width':4,'xtick.minor.width': 2})
-        cmap = cm.get_cmap('viridis', 12)
-        color_list=[cmap(x) for x in [0.0,0.1,0.25,0.5,0.75,0.9,1.0]]
-        
-        sns.lineplot(x=range(1,len(inference_output[2])+1)[20:],y=inference_output[2][20:],color=color_list[0],lw=3.0)
-        o=plt.xlabel('Epoch')
-        o=plt.ylabel('-ELBO')
-        ```
-        ![Alt text](README_files/README_26_0.png?raw=true "Model Convergence")
-        
-        Convergence appears to have been attained, but we can also compare the simulated and inferred symptom risk functions. If the inference algorithm is converging to the correct mode, then the two functions should be nearly identical.
-        
-        ``` python
-        f,axes = plt.subplots(1, 2,figsize=(16,8))
-        for ax in axes:
-            ax.tick_params(axis='x',which='both',bottom=False,top=False,left=False,right=False,labelbottom=False)
-            ax.tick_params(axis='y',which='both',left=False,right=False,bottom=False,top=False,labelleft=False)
-        
-        infRiskFunc=vlpiModel.ReturnComponents()
-        simRiskFunc=simulatedData['model_params']['latentPhenotypeEffects']
-        im1=axes[0].imshow(simRiskFunc,cmap=cmap)
-        im2=axes[1].imshow(infRiskFunc,cmap=cmap)
-        o=axes[0].set_title('Simulated Symptom\nRisk Function',fontsize=36)
-        o=axes[1].set_title('Inferred Symptom\nRisk Function',fontsize=36)
-        ```
-        ![Alt text](README_files/README_28_0.png?raw=true "Risk Functions")
-        
-        
-        Note, the inference algorithm automatically selects the appropriate number of latent phenotypes by zeroing out the parts of the risk function that correspond to the unneeded components. As a final step, we can compare the inferred latent phenotypes themselves. In this case, we simply visually match the simulated and inferred latent phenotypes based on the risk functions depicted above, but there are formal ways to align matrices of parameters (Orthogonal Procrustes Analysis, see Blair et al).
-        
-        ``` python
-        inferredCrypticPhenotypes=vlpiModel.ComputeEmbeddings((simulatedData['incidence_data'],simulatedData['covariate_data']))
-        f,axes = plt.subplots(1, 2,figsize=(16,8))
-        f.tight_layout(pad=3.0)
-        
-        sns.scatterplot(simulatedData['latent_phenotypes'][:,0],inferredCrypticPhenotypes[:,-1],color=color_list[0],ax=axes[0])
-        sns.scatterplot(simulatedData['latent_phenotypes'][:,1],inferredCrypticPhenotypes[:,-4],color=color_list[2],ax=axes[1])
-        axes[0].plot([-3,3],[-3,3],'--',lw=5.0,color='r')
-        axes[1].plot([-3,3],[-3,3],'--',lw=5.0,color='r')
-        
-        o=axes[0].set_xlabel('Simulated Latent\nPhenotype 1',fontsize=20)
-        o=axes[1].set_xlabel('Simulated Latent\nPhenotype 2',fontsize=20)
-        
-        o=axes[0].set_ylabel('Inferred Latent\nPhenotype 10',fontsize=20)
-        o=axes[1].set_ylabel('Inferred Latent\nPhenotype 7',fontsize=20)
-        
-        ```
-        ![Alt text](README_files/README_30_0.png?raw=true "Latent Phenotypes")
-        
-        
-        Clearly, the inferred and simulated latent phenotypes are highly correlated. However, there is a fair amount of noise associated with the inferred latent phenotypes, and in addition, there are floor/ceiling effects. These reflect a loss of information that occurs when continuous traits are transformed into noisy, binary symptoms. This noise level is greatly reduced by simulating datasets with hundreds of symptoms, although this is not a realistic clinical scenario.
-        
 Platform: UNKNOWN
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Description-Content-Type: text/markdown
+License-File: LICENSE
+
+# Variational Latent Phenotype Inference (vLPI)
+
+The <code>vlpi</code> software package implements the latent phenotype model described in Blair et al, which infers cryptic, quantitative traits that capture the variability observed across a set of disease symptoms. Details concerning the implementation of the model and inference algorithm can be found in the Supplementary Materials of Blair et al. 2021 (https://doi.org/10.1101/2021.08.26.21262300). Please contact david.blair@ucsf.edu with any questions.
+
+## Dependencies
+
+1) torch==1.5.1
+2) pyro-ppl>=1.3.1
+3) numpy>=1.19.0
+4) pandas>=1.0.5
+5) scipy>=1.5.2
+6) scikit-learn>=0.22.1
+7) typing
+8) unidecode
+
+## Installation
+
+The software package can be installed using pip by running the following command:
+pip install vlpi
+
+This process takes under a few minutes for all the software configurations tested. A singularity file that creates a linux container with this software pre-installed is available at https://github.com/daverblair/singularity_vlpi.
+
+## Use
+
+The software package is essentially broken into two sections. The first implements a data structure (<code>ClinicalDataset</code> class) that efficiently stores and manipulates large clinical datasets. It is essentially a sparse binary array with added functionality that automates many tasks, such as constructing training and validation splits and converting among different ICD10 encodings. In addition, another class (<code>ClinicalDatasetSampler</code>) is used to efficiently generate random subsets of the <code>ClinicalDataset</code>, which is important for training.
+
+The second part of the software package, the <code>vLPI</code> class, implements the model fitting itself using a stochastic, amortized variational inference algorithm (see Blair et al. for details). It requires a <code>ClinicalDataset</code> class passed in the form of a <code>ClinicalDatasetSampler</code>. Below, we provide an example of how to use the software package by simulating a relatively simple clinical dataset. Further details regarding the package and its functionality can be found by reading the source code documentation, specifically instructions associated with individual functions and classes.  
+
+Run times vary depending on the size and complexity of the dataset. For the analyses described in Blair et al. 2021 (https://doi.org/10.1101/2021.08.26.21262300), most models converge in less than 20 minutes on a gpu-enabled machine. Inference times on a non-gpu machine are considerably longer, likely on the order of a few hours. Note, this code was optimized to run on gpu-enabled machines.
+
+## Simulation Example
+
+First, we will import the functions required for dataset simulation and inference from the <code>vlpi</code> package. Note, <code>torch</code> and <code>string</code> are imported simply to assist with the simulation.
+
+``` python
+from vlpi.data.ClinicalDataset import ClinicalDataset,ClinicalDatasetSampler
+from vlpi.data.ClinicalDataSimulator import ClinicalDataSimulator
+from vlpi.vLPI import vLPI
+import torch
+import string
+
+seed=torch.manual_seed(1023)
+```
+
+Using the <code>ClinicalDataSimulator</code> class, simulating a clinical dataset of binary symptoms is straightforward. Additional details regarding the functionality of <code>ClinicalDataSimulator</code> are provided in the source code.
+
+``` python
+numberOfSamples=50000
+numberOfSymptoms=20
+
+rareDiseaseFrequency=0.001
+numLatentPhenotypes=2
+simulator = ClinicalDataSimulator(numberOfSymptoms,numLatentPhenotypes,rareDiseaseFrequency)
+simulatedData=simulator.GenerateClinicalData(numberOfSamples)
+```
+
+The <code>simulatedData</code> returned by <code>ClinicalDataSimulator</code> is a nested dictionary of results, but to use the <code>vLPI</code> model, we need to get this information into a <code>ClinicalDataset</code>. First, we initialize an empty dataset, which by default is constructed using the full ICD10-CM codebook.
+
+``` python
+clinicalData = ClinicalDataset()
+```
+
+Most applications, however, do not require the complete codebook. In fact, we recommend against trying to fit this model to more than 10-100 hundred symptoms, as it unlikely to be able to reliably tease apart such a complex latent structure. Therefore, a <code>ClinicalDataset</code> can be a priori manipulated such that it aligns to a different encoding, which is what we do below. Note, the <code>ClinicalDataset</code> class can also read a dataset directly from a text file (see <code>ClinicalDataset.ReadDatasetFromFile</code>), and this should work for arbitrary encodings as long as the <code>ClinicalDataset</code> class is set up appropriately. However, we have only tested this function on raw, ICD10-CM encoded datasets.
+
+``` python
+allICDCodes = list(clinicalData.dxCodeToDataIndexMap.keys())
+symptomConversionMap=dict(zip(allICDCodes[0:numberOfSymptoms],string.ascii_uppercase[0:numberOfSymptoms]))
+clinicalData.ConstructNewDataArray(symptomConversionMap)
+print(clinicalData.dxCodeToDataIndexMap)
+```
+
+Now, we can load our simulated symptom data into the <code>ClinicalDataset</code>. Note, the empty list argument would normally contain a list of covariate names, but since we didn't simulate any covariates, there are no names to provide.
+
+``` python
+clinicalData.LoadFromArrays(simulatedData['incidence_data'],simulatedData['covariate_data'],[],catCovDicts=None, arrayType = 'Torch')
+```
+
+The next step is contruct a <code>ClinicalDatasetSampler</code> class from the <code>ClinicalDataset</code>, which enables the stochastic sampling that is required for inference. To do so, you must specify a fraction of the dataset to withhold for testing/validation. Note, there is also a way to write <code>ClinicalDataset</code> and <code>ClinicalDatasetSamplers</code> to disk, that way the same dataset and sampler class can be reloaded to ensure replicability.
+
+``` python
+training_data_fraction=0.75
+sampler = ClinicalDatasetSampler(clinicalData,training_data_fraction,returnArrays='Torch')
+```
+
+Now, we're ready to perform model inference. Technically, only the initial number of latent phenotypes needs to be specified, although there are additional optional arguments as well (see source code). We've really only tested the model on symptoms sets that likely contain <10 latent phenotypes. The model may be effective at inferring more complex structures, but we have not thoroughly tested this.
+
+``` python
+infNumberOfLatentPhenotypes=10
+vlpiModel= vLPI(sampler,infNumberOfLatentPhenotypes)
+```
+
+Fitting the model is very straightforward, although there are multiple hyper-parameters (learning rate, batch size, max epochs, etc) that can be changed from their baseline values. The default hyperparameters and different options used in practice are described in Blair et al. We always recommend saving any model that was successfully fit using the <code>vLPI.PackageModel</code> function.
+
+``` python
+inference_output = vlpiModel.FitModel(batch_size=1000,errorTol=(1.0/numberOfSamples),verbose=False)
+```
+
+Great! Now, we can check model fit with little bit of visualization. We'll use the <code>matplotlib</code> and <code>seaborn</code> plotting libraries for this, which are not included with the <code>vlpi</code> package. First, we can track the loss function on the held-out testing data, where the loss function is the negative evidence lower bound. We dropped the first 20 epochs because the they obscure the rest of the data.
+
+``` python
+import seaborn as sns
+from matplotlib import cm
+import numpy as np
+import matplotlib.pyplot as plt
+sns.set(context='talk',color_codes=True,style='ticks',font='Arial',font_scale=2.5,rc={'axes.linewidth':5,"font.weight":"bold",'axes.labelweight':"bold",'xtick.major.width':4,'xtick.minor.width': 2})
+cmap = cm.get_cmap('viridis', 12)
+color_list=[cmap(x) for x in [0.0,0.1,0.25,0.5,0.75,0.9,1.0]]
+
+sns.lineplot(x=range(1,len(inference_output[2])+1)[20:],y=inference_output[2][20:],color=color_list[0],lw=3.0)
+o=plt.xlabel('Epoch')
+o=plt.ylabel('-ELBO')
+```
+![Alt text](README_files/README_26_0.png?raw=true "Model Convergence")
+
+Convergence appears to have been attained, but we can also compare the simulated and inferred symptom risk functions. If the inference algorithm is converging to the correct mode, then the two functions should be nearly identical.
+
+``` python
+f,axes = plt.subplots(1, 2,figsize=(16,8))
+for ax in axes:
+    ax.tick_params(axis='x',which='both',bottom=False,top=False,left=False,right=False,labelbottom=False)
+    ax.tick_params(axis='y',which='both',left=False,right=False,bottom=False,top=False,labelleft=False)
+
+infRiskFunc=vlpiModel.ReturnComponents()
+simRiskFunc=simulatedData['model_params']['latentPhenotypeEffects']
+im1=axes[0].imshow(simRiskFunc,cmap=cmap)
+im2=axes[1].imshow(infRiskFunc,cmap=cmap)
+o=axes[0].set_title('Simulated Symptom\nRisk Function',fontsize=36)
+o=axes[1].set_title('Inferred Symptom\nRisk Function',fontsize=36)
+```
+![Alt text](README_files/README_28_0.png?raw=true "Risk Functions")
+
+
+Note, the inference algorithm automatically selects the appropriate number of latent phenotypes by zeroing out the parts of the risk function that correspond to the unneeded components. As a final step, we can compare the inferred latent phenotypes themselves. In this case, we simply visually match the simulated and inferred latent phenotypes based on the risk functions depicted above, but there are formal ways to align matrices of parameters (Orthogonal Procrustes Analysis, see Blair et al).
+
+``` python
+inferredCrypticPhenotypes=vlpiModel.ComputeEmbeddings((simulatedData['incidence_data'],simulatedData['covariate_data']))
+f,axes = plt.subplots(1, 2,figsize=(16,8))
+f.tight_layout(pad=3.0)
+
+sns.scatterplot(simulatedData['latent_phenotypes'][:,0],inferredCrypticPhenotypes[:,-1],color=color_list[0],ax=axes[0])
+sns.scatterplot(simulatedData['latent_phenotypes'][:,1],inferredCrypticPhenotypes[:,-4],color=color_list[2],ax=axes[1])
+axes[0].plot([-3,3],[-3,3],'--',lw=5.0,color='r')
+axes[1].plot([-3,3],[-3,3],'--',lw=5.0,color='r')
+
+o=axes[0].set_xlabel('Simulated Latent\nPhenotype 1',fontsize=20)
+o=axes[1].set_xlabel('Simulated Latent\nPhenotype 2',fontsize=20)
+
+o=axes[0].set_ylabel('Inferred Latent\nPhenotype 10',fontsize=20)
+o=axes[1].set_ylabel('Inferred Latent\nPhenotype 7',fontsize=20)
+
+```
+![Alt text](README_files/README_30_0.png?raw=true "Latent Phenotypes")
+
+
+Clearly, the inferred and simulated latent phenotypes are highly correlated. However, there is a fair amount of noise associated with the inferred latent phenotypes, and in addition, there are floor/ceiling effects. These reflect a loss of information that occurs when continuous traits are transformed into noisy, binary symptoms. This noise level is greatly reduced by simulating datasets with hundreds of symptoms, although this is not a realistic clinical scenario.
+
+
