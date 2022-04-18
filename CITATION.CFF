@@ -6,6 +6,6 @@ authors:
   orcid: "https://orcid.org/0000-0002-7455-6488"
 title: "variational Latent Phenotype Inference (vLPI)"
 version: 0.1.8
-doi: 10.5281/zenodo.6459597
+doi: https://doi.org/10.5281/zenodo.6459597
 date-released: 2022-04-13
 url: "https://github.com/daverblair/vlpi"
