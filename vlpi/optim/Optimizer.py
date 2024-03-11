@@ -68,34 +68,26 @@ class AnnealingScheduler:
 
 class Optimizer:
 
-    def _returnELBOSlope(self,elbo_deque):
+    def _returnELBOSlopeError(self,elbo_deque):
+        """ Takes that average of the deque containing ELBO values. Helps determine convergence in the face of noisy SVI by taking the slope of the ELBO values as a function of iteration number. Error is computed as abs(slope)/mean(ELBO)
+        
+        Parameters
+        ----------
+        elbo_deque : collections.deque
+            Deque containing previous N ELBO values (depends on deque size).
+        
+        Returns
+        -------
+        float
+            ELBO error 
+        """
         return abs(linregress(range(len(elbo_deque)),elbo_deque)[0]/np.mean(elbo_deque))
 
-    def _localShuffle(self,dataSample):
+
+
+    def _sendDataToDevice(self,returnData):
         """
-        shuffles dataSample locally on disk/gpu
-        """
-
-        if self.useCuda:
-            new_index = torch.randperm(dataSample[0].shape[0],device = self.device)
-            old_index = torch.arange(dataSample[0].shape[0],device = self.device)
-        else:
-            new_index = torch.randperm(dataSample[0].shape[0])
-            old_index = torch.arange(dataSample[0].shape[0])
-
-        dataSample[0][old_index] = dataSample[0][new_index]
-        for i in range(len(dataSample[1])):
-            dataSample[1][i][old_index]=dataSample[1][i][new_index]
-
-        if dataSample[2] is not None:
-            dataSample[2][old_index]=dataSample[2][new_index]
-        if dataSample[3] is not None:
-            dataSample[3][old_index]=dataSample[3][new_index]
-
-
-    def _sendDataToGPU(self,returnData):
-        """
-        sends returnData to gpu
+        Sends returnData to device other than 'cpu', which is the default.
         """
 
         newIncData=returnData[0].to('cuda:{}'.format(self.device))
@@ -195,7 +187,26 @@ class Optimizer:
             self.KLAnnealingParams=kwargs['KLAnnealingParams']
             assert set(self.KLAnnealingParams.keys())==set(['initialTemp','maxTemp','fractionalDuration','schedule']),"KL Annealing Parameters must be dictionary with the following keys: 'initialTemp','maxTemp','fractionalDuration','schedule'"
 
+    def _sendDataToGPU(self,returnData):
+        """
+        sends returnData to gpu
+        """
 
+        newIncData=returnData[0].to('cuda:{}'.format(self.device))
+        newCovData=[]
+        for i,arr in enumerate(returnData[1]):
+           newCovData+=[arr.to('cuda:{}'.format(self.device))]
+
+        if returnData[2] is not None:
+            newTargetData=returnData[2].to('cuda:{}'.format(self.device))
+        else:
+            newTargetData=None
+        if returnData[3] is not None:
+            newScoreData=returnData[3].to('cuda:{}'.format(self.device))
+        else:
+            newScoreData=None
+
+        return (newIncData,newCovData,newTargetData,newScoreData)
 
 
 
@@ -326,7 +337,7 @@ class Optimizer:
 
             avg_error = sum(error_window)/len(error_window)
             med_error = sorted(error_window)[int(0.5*len(error_window))]
-            slope_error = self._returnELBOSlope(elbo_window)
+            slope_error = self._returnELBOSlopeError(elbo_window)
             prev_train_loss=currrent_train_loss
 
             errorVec+=[min([avg_error,med_error,slope_error])]
@@ -493,7 +504,7 @@ class Optimizer:
 
             avg_error = sum(error_window)/len(error_window)
             med_error = sorted(error_window)[int(0.5*len(error_window))]
-            slope_error = self._returnELBOSlope(elbo_window)
+            slope_error = self._returnELBOSlopeError(elbo_window)
 
             prev_train_loss=avg_epoch_train_loss
             errorVec+=[min([avg_error,med_error,slope_error])]

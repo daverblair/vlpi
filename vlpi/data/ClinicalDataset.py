@@ -18,7 +18,8 @@ import copy
 import pickle
 import itertools
 from vlpi.utils.UtilityFunctions import one_hot_scipy,one_hot
-from vlpi.data.ICDUtilities import ICDUtilities
+from vlpi.data.ICDUtilities import ICDUtilities,ICD_PATH
+
 
 class ClinicalDataset:
 
@@ -35,7 +36,7 @@ class ClinicalDataset:
             df[c] = pd.Series(dtype=d)
         return df
 
-    def _parseICDCodeList(self,codeList):
+    def _parseDxCodeList(self,codeList):
         codeList = list(set(codeList.strip().split(',')))
         codeList=[x.strip() for x in codeList if x.strip()!='']
 
@@ -60,48 +61,130 @@ class ClinicalDataset:
         return covVals
 
 
-    def __init__(self,ICDFilePaths:Iterable[str]=[]):
+    def __init__(self,dxCodeToIndexMap,use_old_ICD10_CM=False, use_old_ICD_UKBB=False):
         """
-
-
         Parameters
         ----------
-        ICDFilePaths : Iterable[str], optional
-            This passes a list of strings ([ICD_hierarchy, ICD_chapters], see ICDUtilities) in order to initialize Dx Code data structure and mappings. This is only relevant when constructing new datasets from a flat text file. Otherwise, the Dx Code information is read from the stored ClinicalDataset Object, so the file paths are irrelevant. By default, the class instantiates the 2018 ICD10-CM coding structure, which is included with the software (as is the UKBB ICD10 encoding structure, downloaded in Jan 2020).
-
-            The default is value [], which defaults to ICD10-CM 2018.
-
-        Returns
-        -------
-        None.
-
+        dxCodeToIndexMap : dict
+            Dictionary of diagnostic strings/codes and their respective index in the diagnostic array. Can pass an empty dict, in which case one of the default mappings must be used. They include ICD10-CM (2018) or the UKBB ICD10 terminology (2022). These two latter options are for replication purposes only. I do not recommend using by default.  
+        
+        use_old_ICD10_CM : bool, optional
+            Indicates to use the old ICD10-CM dataset that distributes with the package. This is not generally recommended.
+        use_old_ICD_UKBB : bool, optional
+            Indicates to use the old ICD10-UKBB dataset that distributes with the package. This is not generally recommended.
+        
         """
-        if len(ICDFilePaths)==0:
-            self.ICDInfo=ICDUtilities()
+        if len(dxCodeToIndexMap)==0:
+            assert (use_old_ICD10_CM==True) or (use_old_ICD_UKBB==True),"Cannot pass an empty diagnostic code-to-index map without setting use_old_ICD10_CM or use_old_ICD_UKBB equal to True"
+            assert ((use_old_ICD10_CM==True) and (use_old_ICD_UKBB==True))==False, "Cannot set both  use_old_ICD10_CM and use_old_ICD_UKBB equal to True. Must use one or the other."
+            if use_old_ICD10_CM:
+                self.ICDInfo=ICDUtilities()
+            else:
+                self.ICDInfo=ICDUtilities(hierarchyFile=ICD_PATH+'icd10_ukbb.txt',chapterFile=ICD_PATH+'ICD10_Chapters.txt')
+            #initialize the clinical data structure to line up with the ICD codebook,
+            #although the clinical dataset need not correspond strictly to ICD codes (and this is frequently true)
+            self.dxCodeToDataIndexMap = copy.deepcopy(self.ICDInfo.usableCodeToIndexMap)
+           
         else:
-            assert len(ICDFilePaths)==2, "Expects a list containing 2 elecments: file paths for ICD10 hierarchy and chapters"
-            self.ICDInfo=ICDUtilities(hierarchyFile=ICDFilePaths[0],chapterFile=ICDFilePaths[1])
-
-        #initialize the clinical data structure to line up with the ICD codebook,
-        #although the clinical dataset need not correspond strictly to ICD codes (and this is frequently true)
-        self.dxCodeToDataIndexMap = copy.deepcopy(self.ICDInfo.usableCodeToIndexMap)
+            self.dxCodeToDataIndexMap = copy.deepcopy(dxCodeToIndexMap)
         self.dataIndexToDxCodeMap = dict(zip(self.dxCodeToDataIndexMap.values(),self.dxCodeToDataIndexMap.keys()))
-
         self.numDxCodes = len(self.dxCodeToDataIndexMap)
         self.data=None
         self.catCovConversionDicts={}
 
-    def ReadDatasetFromFile(self,clinicalDataset,dxCodeColumn,indexColumn = None, skipColumns=[], hasHeader=True,chunkSize = 500):
+    def LoadFromArrays(self,incidenceArray,subjectIDs = None,covariateArrays=None):
+
+
+        """
+        
+        Loads clinical dataset from array data. Input incidence arrays must be np.array, scipy.sparse.csr_matrix or torch.tensor. Covariate vectors must be either numpy arrays or torch.tensors.
+        
+        Parameters
+        ----------
+        incidenceArray : np.array, scipy.sparse.csr_matrix or torch.tensor
+            Binary symptom array, with samples along the 0-index and diagnoses along the 1-index. Must match the dictionary provided when instantiating the class. 
+        covariateArrays : dict
+            dictionary of numpy.array(s) or torch.tensor(s), which contain the categorical. Keys of the dictionary represent the covariate names.
+
+        subjectIDs : None, 1-d iterable
+            optional list/array of ids for the subjects in the data array. If not provided, uses a 0-(total # of subjects) range.
+        
+        Raises
+        ------
+        TypeError
+            
+        """
+        if isinstance(incidenceArray,np.ndarray):
+            incidenceArrayType='Numpy'
+        elif torch.is_tensor(incidenceArray):
+            incidenceArrayType='Torch'
+        elif isinstance(incidenceArray,sparse.csr_matrix):
+            incidenceArrayType='Sparse'
+        else:
+            raise TypeError("incidenceArray type is not supported")
+
+        assert incidenceArray.shape[1]==self.numDxCodes, "Dimension of incidence data does not match number of codes. Please re-instantiate the class witht the correct dx-to-index map."
+
+
+        if covariateArrays==None:
+            covariateArrays={}
+            covariateArrayType='Numpy'
+        else:
+            test_cov=covariateArrays[list(covariateArrays.keys())[0]]
+            if isinstance(test_cov,np.ndarray):
+                covariateArrayType='Numpy'
+            elif torch.is_tensor(test_cov):
+                covariateArrayType='Torch'
+            else:
+                raise TypeError("covariate array type is not supported")
+            if covariateArrayType=='Numpy':
+                for c_name in covariateArrays.keys():
+                    assert isinstance(covariateArrays[c_name],np.ndarray)==True,"All covariates are not of type np.array. Please fix."
+            else:
+                for c_name in covariateArrays.keys():
+                    assert torch.is_tensor(test_cov)==True,"All covariates are not of type torch.tensor. Please fix."
+
+
+        dataDict={}
+        if subjectIDs==None:
+            dataDict['patient_id']=np.arange(incidenceArray.shape[0],dtype=np.int64)
+        else:
+            assert len(subjectIDs)==incidenceArray.shape[0], "The length of the subjectID list/array does not match the dimensions of the incidence array."
+            dataDict['patient_id']=np.array(subjectIDs)
+
+        if incidenceArrayType=='Numpy':
+            dataDict['dx_codes'] = [np.where(x==1)[0].tolist() for x in incidenceArray]
+        elif incidenceArrayType=='Torch':
+            incidenceArray=incidenceArray.to('cpu').detach().numpy()
+            dataDict['dx_codes'] = [np.where(x==1)[0].tolist() for x in incidenceArray]
+        else:
+            dataDict['dx_codes'] = [np.where(x.toarray()==1)[1].tolist() for x in incidenceArray]
+
+        if covariateArrayType=='Torch':
+            for name,cov_data in covariateArrays.items():
+                covariateArrays[name]=cov_data.to('cpu').detach().numpy().ravel()
+        else:
+            for name,cov_data in covariateArrays.items():
+                covariateArrays[name]=cov_data.ravel()
+
+        for name,cov_data in covariateArrays.items():
+            uniqueCats = list(set(cov_data))
+            self.catCovConversionDicts[name] = dict(zip(uniqueCats,list(range(len(uniqueCats)))))
+            cov_data= np.array([self.catCovConversionDicts[name][x] for x in cov_data],dtype=np.int64)
+            dataDict[name] = cov_data
+
+
+        self.data = pd.DataFrame(dataDict)
+        self.data.set_index('patient_id',drop=False, inplace=True)
+
+    def ReadDatasetFromFile(self,clinicalDatasetFile,dxCodeColumn,indexColumn = None, skipColumns=[], hasHeader=True,chunkSize = 500):
         """
 
-        Initializes the Pandas clinical dataset by reading it from a text file.
-
-        Expects that clinical dataset is in ICD format. Can transition to other formats (HPO)
-        by using using ConvertCodes function.
+        Reads clinical dataset from a tab-delimited text file.
 
         Parameters
         ----------
-        clinicalDataset : str
+        clinicalDatasetFile : str
             File Name for clinical dataset.
         dxCodeColumn : int
             Column that contains a comma-separated list of associated ICD codes, first column denoted by 0
@@ -119,9 +202,8 @@ class ClinicalDataset:
         None
 
         """
-
         assert chunkSize >1, "chunkSize must be > 1"
-        clinicalFile = open(clinicalDataset)
+        clinicalFile = open(clinicalDatasetFile)
         if hasHeader:
             headLine = clinicalFile.readline().strip('\n').split('\t')
             catCovNames = [h for h in headLine if headLine.index(h) not in [dxCodeColumn,indexColumn]+skipColumns]
@@ -139,25 +221,23 @@ class ClinicalDataset:
         currentDataList ={colName:[] for colName in self.data.columns}
         for line in clinicalFile:
             line = line.strip('\n').split('\t')
-            currentDataList['dx_codes']+=[self._parseICDCodeList(line[dxCodeColumn])]
+            currentDataList['dx_codes']+=[self._parseDxCodeList(line[dxCodeColumn])]
             for nm, val in self._parseCatCov([line[i] for i in range(len(line)) if i not in [dxCodeColumn,indexColumn]+skipColumns],catCovNames):
                 currentDataList[nm]+=[val]
 
             if indexColumn!=None:
-                currentDataList['patient_id']+=[int(line[indexColumn])]
+                currentDataList['patient_id']+=[line[indexColumn]]
             else:
                 currentDataList['patient_id']+=[patientCounter]
             patientCounter+=1
             if patientCounter % chunkSize==0:
-                self.data=self.data.append(pd.DataFrame(currentDataList),ignore_index=True)
+                self.data=pd.concat([self.data,pd.DataFrame(currentDataList)],ignore_index=True,axis=0)
                 currentDataList ={colName:[] for colName in self.data.columns}
 
 
         if len(currentDataList['patient_id'])>0:
-            self.data=self.data.append(pd.DataFrame(currentDataList),ignore_index=True)
+            self.data=pd.concat([self.data,pd.DataFrame(currentDataList)],ignore_index=True,axis=0)
 
-        #shuffle data and create new index
-        self.data = self.data.sample(frac=1).reset_index(drop=True)
         self.data.set_index('patient_id',drop=False, inplace=True)
 
 
@@ -225,7 +305,7 @@ class ClinicalDataset:
     def ConvertCodes(self,dx_code_list:Iterable[str],new_code:str):
         """
 
-        Converts set of ICD codes into a single dx code through logical-OR function. If given a single code, simply renames code as new_code.
+        Converts set of diagnostic codes into a single dx code through logical-OR function. If given a single code, simply renames code as new_code.
 
         Parameters
         ----------
@@ -345,7 +425,7 @@ class ClinicalDataset:
         for dx_code in dx_code_list:
             dx_code.replace('.','')
             allPatients_wDx=self.FindAllPatients_wDx(dx_code)
-            hasDx=np.zeros(self.data.shape[0],dtype=np.bool)
+            hasDx=np.zeros(self.data.shape[0],dtype=bool)
             self.data.insert(len(self.data.columns),'has_'+dx_code,hasDx)
             self.data.loc[allPatients_wDx,'has_'+dx_code]=True
         self.ExcludeAll(dx_code_list)
@@ -405,61 +485,7 @@ class ClinicalDataset:
 
 
 
-    def LoadFromArrays(self,incidenceArray,covariateArrays,covariateNames,catCovDicts=None, arrayType = 'Numpy'):
-        """
 
-        Loads clinical dataset from array data, generally used for simulation purposes. However, could also be used to bypass the ICD10 structure and load custom binary datasets. Dataset would need to be manipulated ahead of time using ConvertCodes and IncludeOnly to obtain a dataset with the dimensions/labels. Input arrays must be Numpy or PyTorch tensors.
-
-        Parameters
-        ----------
-        incidenceArray : np.array or torch.tensor
-            Binary symptom array
-        covariateArrays : list of numpy.array or torch.tensor
-            List of categorical covariates, which contains one numpy.array/torch.tensor per covariate
-        covariateNames : List of str
-            List of names for covariates
-        catCovDicts : list of dicts
-            List of dictionaries (one for each covariate) that maps covariates to integer values. If not provided, this is done automatically
-        arrayType : str
-            Indictes the array type. Numpy arrays ['Numpy'] or pyTorch tensors ['Torch']. Default is Numpy.
-
-        Returns
-        -------
-        None
-
-        """
-
-        assert arrayType in ['Numpy','Torch'], "Only Numpy arrarys or Torch tensors supported"
-        if covariateArrays==None:
-            covariateArrays=[]
-        if covariateNames==None:
-            covariateNames=[]
-        assert len(covariateArrays)==len(covariateNames), "Number of covariate names does not match number of covariate arrays."
-        assert incidenceArray.shape[1]==self.numDxCodes, "Dimension of incidence data does not match number of codes."
-
-        if arrayType=='Torch':
-            incidenceArray=incidenceArray.to('cpu').detach().numpy()
-            covariateArrays=[x.to('cpu').detach().numpy().ravel() for x in covariateArrays]
-        else:
-            covariateArrays=[x.ravel() for x in covariateArrays]
-
-        dataDict={}
-        for i,name in enumerate(covariateNames):
-            if catCovDicts == None:
-                uniqueCats = list(set(covariateArrays[i]))
-                self.catCovConversionDicts[name] = dict(zip(uniqueCats,list(range(len(uniqueCats)))))
-                covariateArrays[i] = np.array([self.catCovConversionDicts[name][x] for x in covariateArrays[i]],dtype=np.int64)
-            else:
-                self.catCovConversionDicts[name]=catCovDicts[i]
-                covariateArrays[i] = np.array([self.catCovConversionDicts[name][x] for x in covariateArrays[i]],dtype=np.int64)
-            dataDict[name] = covariateArrays[i]
-
-        dataDict['patient_id']=np.arange(incidenceArray.shape[0],dtype=np.int64)
-        dataDict['dx_codes'] = [np.where(x==1)[0].tolist() for x in incidenceArray]
-
-        self.data = pd.DataFrame(dataDict)
-        self.data = self.data.sample(frac=1).reset_index(drop=True)
-        self.data.set_index('patient_id',drop=False, inplace=True)
 
     def ReturnSparseDataMatrix(self,index:Iterable[int]=[]):
         """
@@ -657,9 +683,6 @@ class ClinicalDatasetSampler():
         else:
             index_vals=self.currentClinicalDataset.data.index.intersection(index_vals)
             self.currentClinicalDataset.data.drop(index=index_vals,inplace=True)
-
-
-
 
     def ChangeArrayType(self,newArrayType):
         """
@@ -1037,28 +1060,28 @@ class ClinicalDatasetSampler():
             new_instance.testDataIndex=[dataWithDx[cutOffValWDx:],dataWithoutDx[cutOffValWoDx:]]
         return new_instance
 
-    def CollapseDataArrays(self,disInds=None,cov_vecs=None,drop_column=False):
-        """
-        Converts
-
-
+    def CollapseDataArrays(self,dx_inds=None,cov_vecs=None,drop_column=False):
+        """Collapses lists of diagnostic indicator arrays (dx_inds) and/or lists of covariate vectors (cov_vecs) into one large array.
+        For covarariate vectors, there is an option to drop one column of the covariate vectors, which is useful if including an intercept
+        
         Parameters
         ----------
-        disInds : type
-            Description of parameter `disInds`.
-        cov_vecs : type
-            Description of parameter `cov_vecs`.
-        drop_column : type
-            Description of parameter `drop_column`.
-
+        dx_inds : None, list of arrays
+            List of diagnostic arrays. Must have the same 0-dimension.
+        cov_vecs : None, list of arrays
+             List of covariate arrays. Must have the same 0-dimension.
+        drop_column : bool, optional
+            Indicates whether to drop one of the covariate columns, useful for regression models that have an intercept (to avoid collinearity)
+        
         Returns
         -------
-        type
-            Description of returned object.
-
+        np.array or scipy.sparse_csr or torch.tensor, depending on the current settings of the model.
+            Description
         """
+        assert (dx_inds is not None) or (cov_vecs is not None),"Must pass either dx_inds or cov_vecs to function"
+
         list_of_arrays=[]
-        if disInds is not None:
+        if dx_inds is not None:
             list_of_arrays+=[disInds]
 
 

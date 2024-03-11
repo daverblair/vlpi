@@ -12,7 +12,7 @@ from vlpi.optim.Optimizer import Optimizer
 from vlpi.data.ClinicalDataset import ClinicalDatasetSampler,ClinicalDataset
 from vlpi.model.VAE import VAE
 
-__version__ = "0.1.8"
+__version__ = "0.2.1"
 
 class vLPI:
 
@@ -69,7 +69,7 @@ class vLPI:
 
 
 
-    def FitModel(self,batch_size=1000,verbose=True,**kwargs):
+    def FitModel(self,batch_size=1000,verbose=False,**kwargs):
         """
 
 

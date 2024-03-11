@@ -137,8 +137,8 @@ inferredCrypticPhenotypes=vlpiModel.ComputeEmbeddings((simulatedData['incidence_
 f,axes = plt.subplots(1, 2,figsize=(16,8))
 f.tight_layout(pad=3.0)
 
-sns.scatterplot(simulatedData['latent_phenotypes'][:,0],inferredCrypticPhenotypes[:,-1],color=color_list[0],ax=axes[0])
-sns.scatterplot(simulatedData['latent_phenotypes'][:,1],inferredCrypticPhenotypes[:,-4],color=color_list[2],ax=axes[1])
+sns.scatterplot(x=simulatedData['latent_phenotypes'][:,1],y=inferredCrypticPhenotypes[:,0],color=color_list[0],ax=axes[0])
+sns.scatterplot(x=simulatedData['latent_phenotypes'][:,0],y=inferredCrypticPhenotypes[:,-3],color=color_list[2],ax=axes[1])
 axes[0].plot([-3,3],[-3,3],'--',lw=5.0,color='r')
 axes[1].plot([-3,3],[-3,3],'--',lw=5.0,color='r')
 
