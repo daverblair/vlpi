@@ -92,7 +92,7 @@ class ClinicalDataset:
         self.data=None
         self.catCovConversionDicts={}
 
-    def LoadFromArrays(self,incidenceArray,subjectIDs = None,covariateArrays=None):
+    def LoadFromArrays(self,incidenceArray,subjectIDs = [],covariateArrays=None):
 
 
         """
@@ -146,7 +146,7 @@ class ClinicalDataset:
 
 
         dataDict={}
-        if subjectIDs==None:
+        if len(subjectIDs)==0:
             dataDict['patient_id']=np.arange(incidenceArray.shape[0],dtype=np.int64)
         else:
             assert len(subjectIDs)==incidenceArray.shape[0], "The length of the subjectID list/array does not match the dimensions of the incidence array."
