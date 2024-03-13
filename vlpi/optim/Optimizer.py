@@ -157,10 +157,17 @@ class Optimizer:
             self.device='cpu'
 
         if self.device!='cpu':
-            assert torch.cuda.is_available()==True, 'GPU is not available on your system.'
-            self.useCuda=True
-            if isinstance(self.device,str):
-                self.device=int(self.device.strip('cuda:'))
+
+            if self.device=='mps':
+                assert torch.backends.mps.is_available(),"No MPS device available."
+                self.useCuda=True
+            else:
+                assert torch.cuda.is_available()==True, 'GPU is not available on your system.'
+                self.useCuda=True
+                if isinstance(self.device,str):
+                    assert self.device[0:5]=='cuda:',"Format of cuda device does not match expected format: 'cude:device_num'"
+                else:
+                    self.device = 'cuda:{}'.format(self.device)
 
         else:
             self.useCuda=False
@@ -192,17 +199,17 @@ class Optimizer:
         sends returnData to gpu
         """
 
-        newIncData=returnData[0].to('cuda:{}'.format(self.device))
+        newIncData=returnData[0].to(self.device)
         newCovData=[]
         for i,arr in enumerate(returnData[1]):
-           newCovData+=[arr.to('cuda:{}'.format(self.device))]
+           newCovData+=[arr.to()]
 
         if returnData[2] is not None:
-            newTargetData=returnData[2].to('cuda:{}'.format(self.device))
+            newTargetData=returnData[2].to(self.device)
         else:
             newTargetData=None
         if returnData[3] is not None:
-            newScoreData=returnData[3].to('cuda:{}'.format(self.device))
+            newScoreData=returnData[3].to(self.device)
         else:
             newScoreData=None
 

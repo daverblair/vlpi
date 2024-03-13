@@ -484,9 +484,6 @@ class ClinicalDataset:
 
 
 
-
-
-
     def ReturnSparseDataMatrix(self,index:Iterable[int]=[]):
         """
 
@@ -612,7 +609,7 @@ class ClinicalDatasetSampler():
         assert self.trainingFraction >0.0 and self.trainingFraction<1.0, "Fraction of dataset used for training must be between 0.0 and 1.0."
         self.fracWDx=0.0
         self.numTotalSamples = len(self.currentClinicalDataset.data)
-        self.includedCovariates = self.currentClinicalDataset.catCovConversionDicts.keys()
+        self.includedCovariates = list(self.currentClinicalDataset.catCovConversionDicts.keys())
 
 
         assert returnArrays in ['Numpy','Torch','Sparse'], "Only Numpy arrarys, Torch tensors, or Scipy.Sparse (csr) supported"

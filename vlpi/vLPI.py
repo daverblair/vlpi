@@ -12,7 +12,7 @@ from vlpi.optim.Optimizer import Optimizer
 from vlpi.data.ClinicalDataset import ClinicalDatasetSampler,ClinicalDataset
 from vlpi.model.VAE import VAE
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 class vLPI:
 
@@ -96,7 +96,7 @@ class vLPI:
             Maximum number of epochs (passes through training data) for inference. Note, because annealing and learning rate updates depend on maxEpochs, this offers a simple way to adjust the speed at which these values change.
 
         computeDevice: int or None, optional
-            Specifies compute device for inference. Default is None, which instructs algorithm to use cpu. If integer is provided, then algorithm will be assigned to that integer valued gpu.
+            Specifies compute device for inference. Default is None, which instructs algorithm to use cpu. If integer or string is provided, then algorithm will be assigned to that device.
 
         numDataLoaders: int
             Specifies the number of threads used to process data and prepare for upload into the gpu. Note, due to the speed of gpu, inference can become limited by data transfer speed, hence the use of multiple DataLoaders to improve this bottleneck. Default is 0, meaning just the dedicated cpu performs data transfer.
@@ -302,10 +302,10 @@ class vLPI:
 
 
 
-    def ComputePerplexity(self,dataArrays=None, randomize=False):
+    def ComputeSurprisal(self,dataArrays=None, randomize=False,numParticles=10):
         """
-        Computes the per-datum perplexity (-1.0*ELBO) of the training/test data or the provided dataArrays.
-        Can be thought of as a type of reconstruction error (sometimes also referred to as data "surprisal")
+        Computes the per-datum surprisal (-1.0*ELBO) of the training/test data or the provided dataArrays.
+        Can be thought of as a type of reconstruction error.
 
         Parameters
         ----------
@@ -349,7 +349,7 @@ class vLPI:
                 if torch.is_tensor(x) is False:
                     x=self.sampler._torchWrapper(x)
                 list_cov_arrays+=[x]
-            elbo=self.model.ComputeELBOPerDatum(incidence_array, list_cov_arrays)
+            elbo=self.model.ComputeELBOPerDatum(incidence_array, list_cov_arrays,num_particles=numParticles)
             return -1.0*elbo.detach().numpy()
 
 
